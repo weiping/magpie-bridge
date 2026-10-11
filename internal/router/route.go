@@ -71,6 +71,14 @@ func (r *Router) Route(ctx context.Context, h http.Header, body []byte, req *wir
 	}
 	cfg := r.deps.Config
 	session := wire.SessionOf(h)
+
+	// Codex's TUI names the thread in a side session of its own: a short
+	// title, not a turn. Fast tier, no classifier call, no session state;
+	// logged as "aux" so reports don't count it as a turn.
+	if CodexThreadSource(h, body) == "thread_title" {
+		_ = r.deps.Log(Event{Kind: "aux", Session: session, Harness: harness, Agent: "gateway", Tier: TierFast, Reason: "codex-title", Source: "rule"})
+		return routeFor(cfg, Route{Tier: TierFast, Reason: "codex-title", Source: "rule"})
+	}
 	words := wire.FirstWords(req)
 	key := session + "|" + words
 	turn, _ := wire.TurnOf(req)
