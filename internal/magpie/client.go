@@ -58,7 +58,10 @@ type Error struct {
 	Op     string
 	Status int
 	Msg    string
+	Err    error // the cause, when there is one (a deadline, say)
 }
+
+func (e *Error) Unwrap() error { return e.Err }
 
 func (e *Error) Error() string {
 	if e.Status == 0 {
@@ -79,7 +82,12 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte) ([]by
 	}
 	res, err := c.HTTP.Do(req)
 	if err != nil {
-		return nil, &Error{Op: method + " " + path, Msg: "can't reach magpie at " + strings.TrimPrefix(c.BaseURL, "http://") + ": " + err.Error()}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			// magpie was reached but didn't answer in time, or the caller
+			// stopped waiting: not "can't reach"
+			return nil, &Error{Op: method + " " + path, Msg: "no answer from magpie in time: " + ctxErr.Error(), Err: ctxErr}
+		}
+		return nil, &Error{Op: method + " " + path, Msg: "can't reach magpie at " + strings.TrimPrefix(c.BaseURL, "http://") + ": " + err.Error(), Err: err}
 	}
 	defer res.Body.Close()
 	out, err := io.ReadAll(res.Body)
