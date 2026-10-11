@@ -647,3 +647,29 @@ func TestRouterInitCnWithOnlyDeepSeekAndKimi(t *testing.T) {
 		}
 	}
 }
+
+// A group the user already has is kept, so init has no business saying it
+// "uses mb-…'s members for now" (seen 10-12: printed for a kept mb-perf).
+func TestRouterInitKeptGroupIsNotBorrowedInto(t *testing.T) {
+	f := withFakeMagpie(t, servedDeepSeekKimiCN...)
+	f.mu.Lock()
+	f.groups["mb-perf"] = []string{"deepseek/deepseek-v4-pro"}
+	f.order = append(f.order, "mb-perf")
+	f.mu.Unlock()
+	// frontier: only its fast members are served here
+	out, err := captureStdout(t, func() error {
+		return routerInit([]string{"--preset", "frontier", "--groups-only"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "mb-perf: none of the preset's models") {
+		t.Fatalf("init said it borrowed for a group it keeps:\n%s", out)
+	}
+	if !strings.Contains(out, "mb-balanced: none of the preset's models") {
+		t.Fatalf("init did not say mb-balanced borrowed:\n%s", out)
+	}
+	if m, _ := groupMembers(f, "mb-perf"); strings.Join(m, ",") != "deepseek/deepseek-v4-pro" {
+		t.Fatalf("mb-perf changed: %v", m)
+	}
+}
