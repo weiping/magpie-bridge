@@ -171,3 +171,13 @@ func TestPreviousAnswerFromRecordedRequests(t *testing.T) {
 		}
 	}
 }
+
+// Codex puts its <environment_context> (cwd, shell, date…) in the same
+// user message as the first prompt. It is not the user's words: the
+// gateway must read the prompt the UserPromptSubmit hook saw, or the hint
+// the hook left never matches and the turn is classified twice (10-11).
+func TestUserTextStripsCodexEnvironmentContext(t *testing.T) {
+	if got := wire.UserText(parseFixture(t, "responses-codex-turn1.json")); got != "read the fixture file" {
+		t.Fatalf("UserText = %q", got)
+	}
+}

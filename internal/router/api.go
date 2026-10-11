@@ -10,23 +10,21 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"github.com/weiping/magpie-bridge/internal/wire"
 )
 
 // logf writes to mbridge.log (serve points the standard logger there).
 var logf = log.Printf
 
-// reminders matches the <system-reminder> blocks agents tack onto prompts.
-var reminders = regexp.MustCompile(`(?s)<system-reminder>.*?</system-reminder>`)
-
-// PromptHash is §6.4's normalization: system-reminders stripped, whitespace
+// PromptHash is §6.4's normalization: injected blocks stripped (wire.StripInjected), whitespace
 // trimmed, CRLF folded to LF, then SHA-256.
 func PromptHash(prompt string) string {
-	p := reminders.ReplaceAllString(prompt, "")
+	p := wire.StripInjected(prompt)
 	p = strings.ReplaceAll(p, "\r\n", "\n")
 	p = strings.TrimSpace(p)
 	sum := sha256.Sum256([]byte(p))
