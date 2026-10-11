@@ -78,3 +78,12 @@ func TestResolveUsesServedModels(t *testing.T) {
 		t.Fatalf("performance: %v (unresolved %v)", got, unresolved)
 	}
 }
+
+// cn's balanced tier is led by GLM-5.3 where Zhipu is configured; Kimi's
+// coding model is its failover.
+func TestResolveCnBalancedLedByGLM(t *testing.T) {
+	resolved, _ := Presets()["cn"].Resolve(append([]string{"zhipu/glm-5.3"}, served...))
+	if got := resolved[TierBalanced]; len(got) < 2 || got[0] != "zhipu/glm-5.3:high" || got[1] != "moonshot-cn/kimi-k2.7-code" {
+		t.Fatalf("balanced: %v", got)
+	}
+}
