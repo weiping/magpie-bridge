@@ -267,3 +267,34 @@ func TestRouterCheckSaysWhyAGroupIsntServed(t *testing.T) {
 		}
 	})
 }
+
+// 10-11: mb-perf reported 1,000,000 (k3's "1M") and the others 1,048,576
+// (deepseek's 2^20). Both are 1M; router check failed on the 48,576. A
+// window within 5% of the others' max passes; a real gap (256k against
+// 1M) still fails, and says the numbers.
+func TestRouterCheckWindowOneMegaBothWays(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		perf int
+		fail bool
+	}{
+		{"1M against 1Mi", 1000000, false},
+		{"256k against 1Mi", 262144, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := withFakeMagpie(t)
+			f.groups["mb-fast"], f.groups["mb-balanced"], f.groups["mb-perf"] = []string{"a/x"}, []string{"a/y"}, []string{"a/z"}
+			f.order = []string{"mb-fast", "mb-balanced", "mb-perf"}
+			f.contexts["group/mb-fast"], f.contexts["group/mb-balanced"] = 1048576, 1048576
+			f.contexts["group/mb-perf"] = c.perf
+			writeRouterJSON(t, "127.0.0.1:1")
+			out, err := captureStdout(t, func() error { return routerCheck(nil) })
+			if c.fail != (err != nil) || c.fail != strings.Contains(out, "performance window") {
+				t.Fatalf("fail=%v err=%v:\n%s", c.fail, err, out)
+			}
+			if c.fail && !strings.Contains(out, "262144") {
+				t.Fatalf("no numbers:\n%s", out)
+			}
+		})
+	}
+}

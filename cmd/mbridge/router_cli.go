@@ -448,8 +448,12 @@ func routerCheck(args []string) error {
 		}
 		fmt.Println(green.Render("✓"), tier, "group", id)
 	}
-	if max(tierMax[router.TierFast], tierMax[router.TierBalanced]) > tierMax[router.TierPerformance] && tierMax[router.TierPerformance] > 0 {
-		fmt.Println(amber.Render("✗"), "performance window below the other tiers' max")
+	// within 5% is the same window written two ways: 1M as 1,000,000 or
+	// 1,048,576 (10-11: k3 against deepseek)
+	others, perf := max(tierMax[router.TierFast], tierMax[router.TierBalanced]), tierMax[router.TierPerformance]
+	if perf > 0 && perf*100 < others*95 {
+		fmt.Println(amber.Render("✗"), "performance window below the other tiers' max:", perf, "<", others,
+			muted.Render("· a long conversation that fits fast or balanced may not fit performance; give mb-perf a member with a window as big"))
 		failed = true
 	}
 	if !yes {
