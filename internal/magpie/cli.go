@@ -4,11 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 )
 
+// logLine is a line magpie's plugins log to the CLI's output in Go's log
+// format ("2026/10/11 12:53:07 plugin [info]: …"); it is not the command's
+// answer.
+var logLine = regexp.MustCompile(`(?m)^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} .*(\r?\n|$)`)
+
 func (c *Client) cli(ctx context.Context, args ...string) ([]byte, error) {
 	out, err := c.Run(ctx, c.Bin, args...)
+	out = logLine.ReplaceAll(out, nil)
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
 		if msg == "" {

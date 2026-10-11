@@ -325,3 +325,26 @@ func TestTimeoutIsATimeout(t *testing.T) {
 		t.Fatalf("err %v", err)
 	}
 }
+
+// magpie's CLI writes its plugins' log lines (Go log format) before its
+// own output; a user's 0.1.1178 printed one ahead of `magpie version`, and
+// `mbridge version` showed it (10-11). The CLI calls read without them.
+func TestCLIOutputDropsMagpieLogLines(t *testing.T) {
+	const logLine = "2026/10/11 12:53:07 plugin [info]: [github-sync] GitHub sync setup: http://127.0.0.1:3437/\n"
+	c := New("http://127.0.0.1:1")
+	out, fail := logLine+"magpie 0.1.1178\n", false
+	c.Run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		if fail {
+			return []byte(out), errors.New("exit status 1")
+		}
+		return []byte(out), nil
+	}
+	if v, err := c.Version(context.Background()); err != nil || v != "magpie 0.1.1178" {
+		t.Fatalf("version %q %v", v, err)
+	}
+	out, fail = logLine+"magpie: unknown agent \"nope\"\n", true
+	err := c.SetAgentModel(context.Background(), "nope", "group/mb-fast")
+	if err == nil || strings.Contains(err.Error(), "github-sync") || !strings.Contains(err.Error(), `unknown agent "nope"`) {
+		t.Fatalf("error %v", err)
+	}
+}
