@@ -2,9 +2,7 @@
 
 给编码 Agent 用的模型路由器：在 Agent 的 harness 里判断每一轮任务有多难，在本地网关里把请求派给合适的模型档位。简单的提问交给便宜的快模型，跨文件改动和难查的 bug 交给最强的模型。
 
-Magpie Bridge 和官方 [magpie](https://github.com/yetone/magpie) 并排运行：magpie 是本地模型网关，Magpie Bridge 是它旁边的路由器，命令叫 `mbridge`，后台进程 `mbridge serve` 默认监听 `127.0.0.1:3426`。中文名“鹊桥”，英文名是它的直译：喜鹊（magpie）搭的桥，连起 Agent 的 harness 和模型网关。项目早期曾叫 queqiao（鹊桥的拼音）。Magpie Bridge 不含、也不修改 magpie 的代码：先装官方 magpie，再装 Magpie Bridge。
-
-> **状态：** 自 SP8（2026-10-10）起不再是 magpie 的 fork，原来的上游镜像分支改名为 `archive/magpie-mirror`，开发主干是 `main`。设计见 [`docs/superpowers/specs/2026-10-10-queqiao-sp8-standalone-design.md`](docs/superpowers/specs/2026-10-10-queqiao-sp8-standalone-design.md) 和 [`docs/superpowers/specs/2026-10-10-magpie-bridge-sp9-rename-design.md`](docs/superpowers/specs/2026-10-10-magpie-bridge-sp9-rename-design.md)。
+Magpie Bridge 和官方 [magpie](https://github.com/yetone/magpie) 并排运行：magpie 是本地模型网关，Magpie Bridge 是它旁边的路由器，命令叫 `mbridge`，后台进程 `mbridge serve` 默认监听 `127.0.0.1:3426`。中文名“鹊桥”，英文名是它的直译：喜鹊（magpie）搭的桥，连起 Agent 的 harness 和模型网关。Magpie Bridge 不含、也不修改 magpie 的代码，只通过 magpie 的 HTTP 接口、命令行和用量 CSV 与它协作：先装官方 magpie，再装 Magpie Bridge。
 
 ## 要做什么
 
@@ -20,7 +18,7 @@ Magpie Bridge 和官方 [magpie](https://github.com/yetone/magpie) 并排运行�
 
 | 组件 | 用于 | 状态 |
 | --- | --- | --- |
-| 守护进程（`mbridge serve`）：`/v1/bridge/*` 与 Codex、网关模式的代理（`internal/router/`、`internal/proxy/`） | 所有 Agent | SP8 起独立于 magpie |
+| 守护进程（`mbridge serve`）：`/v1/bridge/*` 与 Codex、网关模式的代理（`internal/router/`、`internal/proxy/`） | 所有 Agent | 默认监听 3426 |
 | Claude Code 插件 `magpie-bridge`（`clients/claude-code/`） | Claude Code | 0.2.3，默认连 3426 |
 | Pi 包 `@weiping/pi-magpie-bridge`（`clients/pi/`） | Pi | 0.2.2，自报工具统计 |
 | Codex 插件 `magpie-bridge-codex`（`clients/codex/`） | Codex | 0.2.1，配合 `codex -p mbridge` |
@@ -28,7 +26,17 @@ Magpie Bridge 和官方 [magpie](https://github.com/yetone/magpie) 并排运行�
 
 ## 快速开始
 
-1. **先装官方 magpie**（[yetone/magpie](https://github.com/yetone/magpie)），让它的网关跑在默认的 `127.0.0.1:3425`，配好你的厂商和订阅。
+1. **先装官方 magpie**（[yetone/magpie](https://github.com/yetone/magpie)），让它的网关跑在默认的 `127.0.0.1:3425`，加好厂商（分类器 Jev 也作为一个厂商加进去）：
+
+   ```sh
+   curl -fsSL https://usemagpie.ai/install.sh | sh   # macOS、Linux；Windows 到 usemagpie.ai 下载 App
+   magpie autostart on                               # 有桌面时登录自启；服务器上用 magpie serve
+   magpie provider add deepseek sk-…
+   magpie provider add moonshot-cn sk-…              # Kimi 国内站；国际站用 moonshot
+   magpie provider add typesafe <api-key>            # 分类器 Jev
+   ```
+
+   订阅类账号用 `magpie accounts add <agent>` 或 magpie App 登录。
 
 2. **再装 mbridge**（下载经 SHA-256 校验，装进 `~/.local/bin`，并注册登录时启动的 mbridge）：
 
@@ -47,10 +55,15 @@ Magpie Bridge 和官方 [magpie](https://github.com/yetone/magpie) 并排运行�
 3. **建档位并接上 Agent**：
 
    ```sh
-   mbridge router init --preset cn       # 在 magpie 里建四个路由组，写 router.json，接好 Claude Code 和 Pi（还有 frontier/anthropic 预设）
-   mbridge status                        # magpie、mbridge、分组是否齐全，最近的决策
-   mbridge router check                  # 分组在不在、上下文窗口够不够（加 --yes 再发真实请求，会计费）
+   mbridge router init --preset cn --groups-only   # 在 magpie 里建四个路由组，写 router.json（还有 frontier、anthropic 预设）
+   magpie claude group/mbridge                     # Claude Code 的 base URL 和模型指到 magpie
+   cd ~/code/your-project
+   mbridge router init --preset cn                 # 接好 Claude Code（本项目）、Codex 和 Pi
+   mbridge status                                  # magpie、mbridge、分组是否齐全，最近的决策
+   mbridge router check                            # 分组在不在、上下文窗口够不够（加 --yes 再发真实请求，会计费）
    ```
+
+   `magpie claude group/mbridge` 放在两次 init 之间：`mbridge` 组建好后它会写成带 1M 窗口的 `group/mbridge[1m]`，第二次 init 看到它就不再往项目里写 `ANTHROPIC_MODEL`。Claude Code 的别名映射写在项目的 `.claude/settings.local.json`，每个要用的项目各跑一次。
 
 4. **装插件**：
 
@@ -110,7 +123,15 @@ mbridge router check                  # 检查分组是否齐全、上下文窗�
 - `mbridge` 这个路由组的成员就是三个档位组（`group/mb-balanced`、`group/mb-perf`、`group/mb-fast`），不要改成具体模型。
 - 想改的是「什么样的问题进哪一档」，那是 `router.json` 里各档的 `criteria`，见下一节。
 
-`router init` 的三套预设（`frontier`、`anthropic`、`cn`）只决定第一次建分组时的成员：每档列几个候选模型，只有 magpie 里有厂商提供的才写进组，没有的跳过并提示（候选见[设计文档 §4.3](docs/superpowers/specs/2026-10-02-queqiao-design.md)）。之后分组归你管：再次执行 `router init` 不会改动它们，除非加 `--force`。
+`router init` 的三套预设只决定第一次建分组时的成员。每档按顺序列几个候选模型，只有 magpie 里有厂商提供的才写进组（第一个是主模型，其余做失败转移），没有的跳过并提示；某档一个候选都没有时，先借用相邻档的成员并提示你换掉。之后分组归你管：再次执行 `router init` 不会改动它们，除非加 `--force`。
+
+| 预设 | fast | balanced | performance |
+| --- | --- | --- | --- |
+| `cn` | `deepseek-flash`、`glm-5.3-flash:high`、`qwen3.8-flash:low` | `glm-5.3:high`、`kimi-k2.7-code`、`deepseek-v4-pro:high` | `kimi-k3:high`、`deepseek-v4-pro:max`、`glm-5.3:max`、`qwen3.8-max:xhigh` |
+| `frontier` | `deepseek-flash`、`glm-5.3-flash:high`、`gemini-3.8-flash:low`、`gpt-6-luna:low` | `gpt-6.1-sol:medium`、`claude-sonnet-5-5:medium` | `gpt-6-astra:low`、`claude-opus-5-5:high` |
+| `anthropic` | `anthropic/claude-haiku-5-5`、OpenRouter 同款 | `anthropic/claude-sonnet-5-5:medium`、OpenRouter 同款 | `anthropic/claude-opus-5-5:high`、OpenRouter 同款 |
+
+`cn` 和 `frontier` 的候选不写厂商，哪个厂商提供该模型就用哪个（如 `moonshot`、`moonshot-cn`、`qwen-cn` 都提供 `kimi-k3`）。
 
 `mb-fast`、`mb-balanced`、`mb-perf`、`mbridge` 这四个分组名归 Magpie Bridge 使用，别拿它们做别的用途。再次执行 `mbridge router init` 会保留已有的同名分组、`router.json`，以及当前项目 `.claude/settings.local.json` 里你已设过的 `ANTHROPIC_*` 值，只补上缺的部分，并接好各 Agent；加 `--force` 才会用预设覆盖它们。你的 Claude Code `model` 设置已经是 `group/mbridge`（含 `[1m]`）时，init 不写 `ANTHROPIC_MODEL`，以免环境变量盖过它。
 
@@ -154,7 +175,7 @@ mbridge router check                  # 检查分组是否齐全、上下文窗�
 | `tiers.<档>.criteria` | — | 交给分类器的选档标准（自然语言） |
 | `default_tier` | `balanced` | 分类失败或不可信时的落档（规则 R8） |
 | `classifier` | `local` | 分类器：`typesafe/jev-latest`，或任意 `provider/model`。普通模型用结构化输出给出档位置信度与不满分数（实测 Kimi 支持）；厂商拒绝 `response_format` 时（如 DeepSeek 返回 400）退回只回编号的提示词，此时置信度按回答是否合法记 1/0，事件里的 `classifier` 标 `#plain` |
-| `classify_timeout_ms` | `2500` | 分类超时；超时该轮落默认档，下一轮补偿。三个 Agent 插件等 `/turn` 的时间随它走：本值加 500ms，限定在 1500–8000ms 之间（SP10） |
+| `classify_timeout_ms` | `2500` | 分类超时；超时该轮落默认档，下一轮补偿。三个 Agent 插件等 `/turn` 的时间随它走：本值加 500ms，限定在 1500–8000ms 之间 |
 | `thresholds.tier_min` | `0.4` | 分类结果的最低置信度（R5） |
 | `thresholds.dissatisfied_min` | `0.7` | 「用户在说上一轮不对」的判定阈值（R3 升档） |
 | `thresholds.review_min` | `0.7` | 轮末复核判「没解决」的阈值（R3 升档，`review.mode` 非 `off` 时才有用） |
@@ -186,13 +207,13 @@ magpie provider add typesafe <api-key>
 // 2. ~/.config/magpie-bridge/router.json
 {
   "classifier": "typesafe/jev-latest",
-  "classify_timeout_ms": 2500
+  "classify_timeout_ms": 4000
 }
 ```
 
 不想直连 TypeSafe 还有两个中继预设：`vercel-jev`（Vercel AI Gateway，分类器写 `vercel-jev/typesafe-ai/jev`）和 `cloudflare-jev`（Cloudflare Workers AI，写 `cloudflare-jev/typesafe/jev`）。
 
-时延提示：实测本机到 TypeSafe 的请求热的时候 300–450ms，空闲十几二十分钟后的第一轮要 1.5–2s（冷启动），所以默认超时是 2500ms。超时时该轮落默认档、下一轮自动补偿（spec §5.7）。如果网络到 TypeSafe 不稳定，用本地小模型更稳。
+时延提示：实测本机到 TypeSafe 的请求热的时候 300–450ms，空闲十几二十分钟后的第一轮要 1.5–2.4s（冷启动）。默认超时 2500ms 偶尔压线，建议设 4000。超时时该轮落默认档、下一轮自动补偿。如果网络到 TypeSafe 不稳定，用本地小模型更稳。
 
 ### 轮末复核与置信度校准
 
@@ -229,8 +250,7 @@ Claude Code 插件的地址另有 `gateway_url` 设置（`claude plugin install 
 | 分支 | 用途 |
 | --- | --- |
 | `main`（默认分支） | 开发主干 |
-| `archive/magpie-mirror` | SP8 之前的上游 magpie 镜像，已停止同步，只作历史参考 |
-| `qq/<名字>` | 功能分支，完成后 PR 合回 `main` |
+| `fix/…`、`feat/…`、`docs/…` | 功能分支，完成后 PR 合回 `main` |
 | `v*` 标签 | 推送后构建六个二进制（darwin、linux、windows 的 amd64 和 arm64）和 `checksums.txt` 并发布 Release |
 
 Magpie Bridge 和 magpie 之间只走公开接口（HTTP、CLI、usage CSV），全部集中在 `internal/magpie`。CI 每天拿官方最新的 magpie 跑契约测试（`contract/`），接口变了会自动开 issue。
@@ -251,4 +271,4 @@ cd clients/pi && npx vitest run   # Pi 扩展
 
 ## 许可
 
-MIT。mbridge 曾是 [yetone/magpie](https://github.com/yetone/magpie) 的 fork，上游的版权声明保留在 [LICENSE](LICENSE) 中。
+MIT，见 [LICENSE](LICENSE)。
