@@ -217,7 +217,7 @@ func routerInit(args []string) error {
 		fmt.Println(amber.Render("!"), "codex:", err)
 	}
 	// 4) Claude Code (§4.5)
-	if err := routerInitClaudeCode(); err != nil {
+	if err := routerInitClaudeCode(force); err != nil {
 		fmt.Println(amber.Render("!"), "claude-code:", err)
 	}
 	// 5) Pi (§4.5)
@@ -281,8 +281,12 @@ func fillEmptyTiers(resolved map[router.Tier][]string) {
 }
 
 // routerInitClaudeCode writes §4.5's env mapping into the project's
-// .claude/settings.local.json (cwd).
-func routerInitClaudeCode() error {
+// .claude/settings.local.json (cwd). A value the user already has there is
+// kept unless force (10-11: ANTHROPIC_MODEL=group/mbridge went over the
+// user's group/mbridge[1m]). ANTHROPIC_MODEL is left out when the user's own
+// "model" setting already names group/mbridge: an env model outranks that
+// setting and would drop its [1m].
+func routerInitClaudeCode(force bool) error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return err
@@ -292,15 +296,69 @@ func routerInitClaudeCode() error {
 		return err
 	}
 	path := filepath.Join(dir, "settings.local.json")
+	want := []fsutil.KV{
+		{Path: "env.ANTHROPIC_MODEL", Value: "group/mbridge"},
+		{Path: "env.ANTHROPIC_DEFAULT_HAIKU_MODEL", Value: "group/mb-fast"},
+		{Path: "env.ANTHROPIC_SMALL_FAST_MODEL", Value: "group/mb-fast"},
+		{Path: "env.ANTHROPIC_DEFAULT_SONNET_MODEL", Value: "group/mb-balanced"},
+		{Path: "env.ANTHROPIC_DEFAULT_OPUS_MODEL", Value: "group/mb-perf"},
+		{Path: "env.ANTHROPIC_DEFAULT_FABLE_MODEL", Value: "group/mb-perf"},
+	}
+	var set []fsutil.KV
+	for _, kv := range want {
+		raw, ok, err := fsutil.GetJSON(path, kv.Path)
+		if err != nil {
+			return err // unreadable: not "empty", don't write over it
+		}
+		var have string
+		if ok {
+			_ = json.Unmarshal(raw, &have)
+		}
+		switch {
+		case ok && have == kv.Value.(string):
+			continue
+		case ok && !force:
+			fmt.Println(muted.Render("  kept"), strings.TrimPrefix(kv.Path, "env.")+"="+have, muted.Render(fmt.Sprintf("in %s (--force writes %v)", path, kv.Value)))
+			continue
+		case !ok && kv.Path == "env.ANTHROPIC_MODEL" && !force:
+			if m, where := claudeRouterModel(cwd); m != "" {
+				fmt.Println(muted.Render("  left"), "ANTHROPIC_MODEL unset:", where, "has model", m, muted.Render("(an env model would outrank it)"))
+				continue
+			}
+		}
+		set = append(set, kv)
+	}
+	if len(set) == 0 {
+		return nil
+	}
 	fmt.Println(muted.Render("  edit"), path)
-	return fsutil.SetJSON(path,
-		fsutil.KV{Path: "env.ANTHROPIC_MODEL", Value: "group/mbridge"},
-		fsutil.KV{Path: "env.ANTHROPIC_DEFAULT_HAIKU_MODEL", Value: "group/mb-fast"},
-		fsutil.KV{Path: "env.ANTHROPIC_SMALL_FAST_MODEL", Value: "group/mb-fast"},
-		fsutil.KV{Path: "env.ANTHROPIC_DEFAULT_SONNET_MODEL", Value: "group/mb-balanced"},
-		fsutil.KV{Path: "env.ANTHROPIC_DEFAULT_OPUS_MODEL", Value: "group/mb-perf"},
-		fsutil.KV{Path: "env.ANTHROPIC_DEFAULT_FABLE_MODEL", Value: "group/mb-perf"},
-	)
+	return fsutil.SetJSON(path, set...)
+}
+
+// claudeRouterModel is the user's own Claude Code "model" setting when it
+// already names the router group (group/mbridge, group/mbridge[1m]), and
+// the file it is in: the project's settings, then the user's.
+func claudeRouterModel(cwd string) (string, string) {
+	cfgDir := os.Getenv("CLAUDE_CONFIG_DIR")
+	if cfgDir == "" {
+		home, _ := os.UserHomeDir()
+		cfgDir = filepath.Join(home, ".claude")
+	}
+	for _, p := range []string{
+		filepath.Join(cwd, ".claude", "settings.local.json"),
+		filepath.Join(cwd, ".claude", "settings.json"),
+		filepath.Join(cfgDir, "settings.json"),
+	} {
+		raw, ok, err := fsutil.GetJSON(p, "model")
+		if err != nil || !ok {
+			continue
+		}
+		var m string
+		if json.Unmarshal(raw, &m) == nil && strings.HasPrefix(m, "group/mbridge") {
+			return m, p
+		}
+	}
+	return "", ""
 }
 
 // piModelsPath is ~/.pi/agent/models.json (overridable in tests).
