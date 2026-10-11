@@ -110,18 +110,7 @@ func routerInit(args []string) error {
 	for _, m := range unresolved {
 		fmt.Println(amber.Render("!"), "unresolved (no configured provider serves it yet):", m)
 	}
-	fillEmptyTiers(resolved)
 
-	// 1) the four routing groups (§4.4), made by magpie's own CLI
-	groups := []struct {
-		id      string
-		members []string
-	}{
-		{"mb-fast", resolved[router.TierFast]},
-		{"mb-balanced", resolved[router.TierBalanced]},
-		{"mb-perf", resolved[router.TierPerformance]},
-		{"mbridge", []string{"group/mb-balanced", "group/mb-perf", "group/mb-fast"}},
-	}
 	// a group already in magpie is the user's (tuned members, a rename by
 	// hand): init keeps it unless --force. Not knowing which exist is not
 	// "none exist".
@@ -134,6 +123,18 @@ func routerInit(args []string) error {
 		for _, id := range ids {
 			have[id] = true
 		}
+	}
+	fillEmptyTiers(resolved, have)
+
+	// 1) the four routing groups (§4.4), made by magpie's own CLI
+	groups := []struct {
+		id      string
+		members []string
+	}{
+		{"mb-fast", resolved[router.TierFast]},
+		{"mb-balanced", resolved[router.TierBalanced]},
+		{"mb-perf", resolved[router.TierPerformance]},
+		{"mbridge", []string{"group/mb-balanced", "group/mb-perf", "group/mb-fast"}},
 	}
 	for _, g := range groups {
 		if !have[g.id] && len(g.members) == 0 {
@@ -259,14 +260,16 @@ var tierGroup = map[router.Tier]string{
 // performance's), and says how to give it its own. A group must have a
 // member, and borrowing keeps the tier working where an empty group would
 // fail every request it gets (§7: a whole tier failing moves on anyway).
-func fillEmptyTiers(resolved map[router.Tier][]string) {
+// A tier whose group magpie already has is kept as it is, so nothing is
+// borrowed or said for it.
+func fillEmptyTiers(resolved map[router.Tier][]string, have map[string]bool) {
 	nearest := map[router.Tier][]router.Tier{
 		router.TierPerformance: {router.TierBalanced, router.TierFast},
 		router.TierBalanced:    {router.TierPerformance, router.TierFast},
 		router.TierFast:        {router.TierBalanced, router.TierPerformance},
 	}
 	for _, tier := range []router.Tier{router.TierFast, router.TierBalanced, router.TierPerformance} {
-		if len(resolved[tier]) > 0 {
+		if len(resolved[tier]) > 0 || have[tierGroup[tier]] {
 			continue
 		}
 		for _, from := range nearest[tier] {

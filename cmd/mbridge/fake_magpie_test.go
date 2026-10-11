@@ -95,10 +95,19 @@ func (f *fakeMag) run(_ context.Context, name string, args ...string) ([]byte, e
 	switch {
 	case len(args) >= 4 && args[0] == "group" && args[1] == "add":
 		id := args[2]
+		members := strings.Split(strings.TrimPrefix(args[3], "models="), ",")
+		// magpie 74b30cb refuses a member it does not know, whole group and all:
+		// `magpie: magpie knows no model "glm/glm-5.3-flash" (magpie models lists them)`
+		for _, m := range members {
+			if !f.knows(m) {
+				base, _, _ := strings.Cut(m, ":")
+				return []byte(fmt.Sprintf("magpie: magpie knows no model %q (magpie models lists them)\n", base)), errors.New("exit status 1")
+			}
+		}
 		if _, ok := f.groups[id]; !ok {
 			f.order = append(f.order, id)
 		}
-		f.groups[id] = strings.Split(strings.TrimPrefix(args[3], "models="), ",")
+		f.groups[id] = members
 		return []byte("✓ group " + id), nil
 	case len(args) == 1 && args[0] == "groups" && f.groupsErr:
 		return []byte("magpie: cannot read groups"), errors.New("exit status 1")
@@ -141,6 +150,21 @@ func (f *fakeMag) run(_ context.Context, name string, args ...string) ([]byte, e
 	return nil, fmt.Errorf("fake magpie: %v", args)
 }
 
+// knows is whether magpie would take m as a group member: a model it
+// serves (its effort suffix aside) or a group.
+func (f *fakeMag) knows(m string) bool {
+	if strings.HasPrefix(m, "group/") {
+		return true
+	}
+	base, _, _ := strings.Cut(m, ":")
+	for _, id := range f.served {
+		if id == base {
+			return true
+		}
+	}
+	return false
+}
+
 // groupServed is whether magpie serves any of the group's members.
 func (f *fakeMag) groupServed(g string) bool {
 	for _, m := range f.groups[g] {
@@ -149,6 +173,19 @@ func (f *fakeMag) groupServed(g string) bool {
 		}
 	}
 	return len(f.groups[g]) == 0
+}
+
+// calledPrefix is whether magpie was run with args as its first arguments.
+func (f *fakeMag) calledPrefix(args ...string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	want := strings.Join(append([]string{"magpie"}, args...), " ") + " "
+	for _, c := range f.calls {
+		if strings.HasPrefix(strings.Join(c, " ")+" ", want) {
+			return true
+		}
+	}
+	return false
 }
 
 func (f *fakeMag) called(args ...string) bool {

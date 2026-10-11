@@ -199,7 +199,7 @@ Pi 的流程与 Claude Code 相似，第 ① 步由 `before_agent_start` 发起�
 ### 4.2 选型原则
 
 1. **沿成本—能力的帕累托前沿取三个点**（参照 Artificial Analysis Intelligence Index），相邻两档的单任务成本最好拉开 3 倍以上，这样路由才有省钱空间。附件的三档之间差了约 30 倍。
-2. **推理强度属于档位的一部分**，用成员后缀固定，例如 `glm/glm-5.3-flash:xhigh`。便宜模型配高推理强度、贵模型配低推理强度，常常比反过来更划算，附件里的快速档就是这样配的。
+2. **推理强度属于档位的一部分**，用成员后缀固定，例如 `zhipu/glm-5.3-flash:high`。便宜模型配高推理强度、贵模型配低推理强度，常常比反过来更划算，附件里的快速档就是这样配的。
 3. **跨厂商**：三档尽量来自不同厂商，档内的失败转移成员也要来自另一家厂商，避免单家故障或限流时整档不可用。
 4. **硬性门槛**（入选前用第 4.6 节的冒烟测试验证）：
    - 工具调用稳定：连续 20 次带工具的请求中，参数解析失败 ≤ 1 次。
@@ -213,31 +213,35 @@ Pi 的流程与 Claude Code 相似，第 ① 步由 `before_agent_start` 发起�
 
 `queqiao router init --preset <名字>` 生成第 4.4 节的组配置。下表的模型 ID 以 `queqiao models` 的实际输出为准，`<p>` 表示提供该模型的 Provider ID。这些预设只是起点，第 9 节的实验数据才是调档的依据。
 
-**预设 `frontier`（与附件相同，跨厂商）**
+每档列几个候选成员，按顺序排。`router init` 只把 magpie `/v1/models` 里列出的成员写进组，第一个是主成员，其余依次做失败转移；没人提供的成员（`<p>/` 占位或写死 Provider 的都一样）报告为 unresolved 后跳过。magpie 建组时不认识的模型会整组拒绝（`magpie knows no model …`），所以写死的成员也要先确认在列。（2026-10-12 修订：原先写死 Provider 的成员原样写入，用户没有该 Provider 时 init 在建 `mb-fast` 时失败；模型 ID 按 magpie 74b30cb 的目录更新。）
 
-| 档位 | 主成员 | 同档失败转移 |
-| --- | --- | --- |
-| fast | `<p>/glm-5.3-flash:xhigh` | `deepseek/deepseek-v4-flash` |
-| balanced | `<p>/gpt-5.6-sol:medium` | `<p>/claude-sonnet-5:medium` |
-| performance | `<p>/gpt-6-astra:low` | `<p>/claude-opus-5-5:high` |
+**预设 `frontier`（跨厂商）**
+
+| 档位 | 候选成员 |
+| --- | --- |
+| fast | `<p>/deepseek-flash`、`<p>/glm-5.3-flash:high`、`<p>/gemini-3.8-flash:low`、`<p>/gpt-6-luna:low` |
+| balanced | `<p>/gpt-6.1-sol:medium`、`<p>/claude-sonnet-5-5:medium` |
+| performance | `<p>/gpt-6-astra:low`、`<p>/claude-opus-5-5:high` |
 
 **预设 `anthropic`（只用 Claude 系，适合只有 Anthropic Key 的用户）**
 
-| 档位 | 主成员 | 同档失败转移 |
-| --- | --- | --- |
-| fast | `anthropic/claude-haiku-4-5` | `openrouter/anthropic/claude-haiku-4-5` |
-| balanced | `anthropic/claude-sonnet-5:medium` | `openrouter/anthropic/claude-sonnet-5:medium` |
-| performance | `anthropic/claude-opus-5-5:high` | `openrouter/anthropic/claude-opus-5.5:high` |
+| 档位 | 候选成员 |
+| --- | --- |
+| fast | `anthropic/claude-haiku-5-5`、`openrouter/anthropic/claude-haiku-5.5` |
+| balanced | `anthropic/claude-sonnet-5-5:medium`、`openrouter/anthropic/claude-sonnet-5.5:medium` |
+| performance | `anthropic/claude-opus-5-5:high`、`openrouter/anthropic/claude-opus-5.5:high` |
 
-**预设 `cn`（国内厂商优先）**
+**预设 `cn`（国内厂商）**
 
-| 档位 | 主成员 | 同档失败转移 |
-| --- | --- | --- |
-| fast | `deepseek/deepseek-v4-flash` | `glm/glm-5.3-flash:high` |
-| balanced | `moonshot/kimi-k2.5` | `glm/glm-5.3:high` |
-| performance | 沿用 `frontier` 的 performance 主成员 | 沿用 `frontier` 的 performance 失败转移 |
+| 档位 | 候选成员 |
+| --- | --- |
+| fast | `<p>/deepseek-flash`、`<p>/glm-5.3-flash:high`、`<p>/qwen3.8-flash:low` |
+| balanced | `<p>/glm-5.3:high`、`<p>/kimi-k2.7-code`、`<p>/deepseek-v4-pro:high` |
+| performance | `<p>/kimi-k3:high`、`<p>/deepseek-v4-pro:max`、`<p>/glm-5.3:max`、`<p>/qwen3.8-max:xhigh` |
 
-`cn` 预设的 performance 档暂不指定国内模型。`<p>/` 占位成员只在有已配置的 Provider 提供该模型时才写进组里；一个也解析不了的档位先借用最近一档的成员（performance 借 balanced），`router init` 同时打印 `queqiao group set qq-perf models=…` 提示用户从 `queqiao models` 里挑一个当前公认最强的国内模型替换。（2026-10-06 修订：原先占位成员原样写入组内，组显示 no member ready。）
+选型依据（2026-10-12 核对厂商文档）。DeepSeek 当前 ID 是 `deepseek-flash`（V4.1 Flash）和 `deepseek-v4-pro`，`deepseek-v4-flash` 是仍被接受的旧名。OpenAI GPT-6 三档从强到弱是 Astra、Sol、Luna，GPT-6.1 目前只有 Sol。Kimi 的旗舰是 `kimi-k3`，`kimi-k2.7-code-highspeed` 价格是 `kimi-k2.7-code` 的两倍，不放进 fast；`kimi-k2.5` 已于 8 月 31 日下线。fast 档的候选都要比 balanced 档成员便宜。cn 的 balanced 由 GLM-5.3 领头（作者 2026-10-12 指定）。
+
+`<p>/` 让同一个模型 ID 落到任何提供它的 Provider（如 `moonshot`、`moonshot-cn`、`qwen-cn` 都提供 `kimi-k3`）。一档的候选一个也没解析出来时，先借用最近一档的成员（performance 借 balanced），`router init` 打印 `magpie group set mb-perf models=…` 提示用户换成自己的模型；该档的组已经存在时保留原样，不借也不提示。
 
 ### 4.4 落到网关配置
 

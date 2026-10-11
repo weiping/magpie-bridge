@@ -13,11 +13,11 @@ import (
 	"github.com/weiping/magpie-bridge/internal/router"
 )
 
-// routerHome gives a test a fresh home and a fake magpie serving the cn
-// preset's fast and balanced models.
+// routerHome gives a test a fresh home and a fake magpie serving what a
+// DeepSeek and Kimi (China) user has (servedDeepSeekKimiCN).
 func routerHome(t *testing.T) *fakeMag {
 	t.Helper()
-	return withFakeMagpie(t, "deepseek/deepseek-v4-flash", "moonshot/kimi-k2.5", "glm/glm-5.3-flash", "glm/glm-5.3")
+	return withFakeMagpie(t, servedDeepSeekKimiCN...)
 }
 
 // groupMembers is a group as the fake magpie holds it.
@@ -30,10 +30,8 @@ func groupMembers(f *fakeMag, id string) ([]string, bool) {
 
 func TestRouterInitCnWritesGroupsAndConfig(t *testing.T) {
 	f := routerHome(t)
-	// cn preset: fast/balanced resolved by name; performance members are
-	// <p>/… and resolve to nothing here — reported unresolved, left out of
-	// the group, and the tier takes balanced's members for now
-	// (TestRouterInitFillsAnEmptyTier) rather than failing init.
+	// cn preset: each tier keeps the members magpie serves; the rest are
+	// reported unresolved and left out.
 	if err := routerInit([]string{"--preset", "cn", "--groups-only"}); err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +44,7 @@ func TestRouterInitCnWritesGroupsAndConfig(t *testing.T) {
 	if !f.called("group", "add", "mbridge", "models=group/mb-balanced,group/mb-perf,group/mb-fast", "routing=order") {
 		t.Fatalf("router group not made through magpie's CLI: %v", f.calls)
 	}
-	if fast, _ := groupMembers(f, "mb-fast"); fast[0] != "deepseek/deepseek-v4-flash" {
+	if fast, _ := groupMembers(f, "mb-fast"); fast[0] != "deepseek/deepseek-flash" {
 		t.Fatalf("fast members: %v", fast)
 	}
 	if cfg, _ := router.Load(routerJSONPath(), ""); cfg.Listen != "127.0.0.1:3426" || cfg.MagpieURL != "http://127.0.0.1:3425" {
@@ -71,10 +69,11 @@ func TestRouterInitCnWritesGroupsAndConfig(t *testing.T) {
 // A tier whose preset members nothing serves is not written with "<p>/"
 // placeholders that can never answer: it takes the nearest tier's members
 // (performance takes balanced's) and init says how to give it its own.
+// frontier here: only its fast members are served.
 func TestRouterInitFillsAnEmptyTier(t *testing.T) {
 	f := routerHome(t)
 	out, err := captureStdout(t, func() error {
-		return routerInit([]string{"--preset", "cn", "--groups-only"})
+		return routerInit([]string{"--preset", "frontier", "--groups-only"})
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -129,7 +128,7 @@ func TestRouterInitKeepsWhatExists(t *testing.T) {
 	if err := routerInit([]string{"--preset", "cn", "--groups-only", "--force"}); err != nil {
 		t.Fatal(err)
 	}
-	if m, _ := groupMembers(f, "mb-fast"); m[0] != "deepseek/deepseek-v4-flash" {
+	if m, _ := groupMembers(f, "mb-fast"); m[0] != "deepseek/deepseek-flash" {
 		t.Fatalf("--force did not put the preset back: %v", m)
 	}
 	if b, _ := os.ReadFile(routerJSONPath()); bytes.Equal(b, tuned) {
@@ -169,7 +168,7 @@ func TestRouterInitWiresAgentsOverExistingSetup(t *testing.T) {
 	if _, err := captureStdout(t, func() error { return routerInit([]string{"--preset", "cn"}) }); err != nil {
 		t.Fatal(err)
 	}
-	if f.called("group", "add", "mb-fast", "models=deepseek/deepseek-v4-flash,glm/glm-5.3-flash", "routing=order") {
+	if f.calledPrefix("group", "add", "mb-fast") {
 		t.Fatal("init replaced an existing group")
 	}
 	for _, id := range []string{"mb-fast", "mb-balanced", "mb-perf"} {
@@ -196,7 +195,7 @@ func TestRouterInitStopsWhenGroupsUnreadable(t *testing.T) {
 	if err := routerInit([]string{"--preset", "cn", "--groups-only"}); err == nil {
 		t.Fatal("init went on without knowing which groups exist")
 	}
-	if f.called("group", "add", "mb-fast", "models=deepseek/deepseek-v4-flash,glm/glm-5.3-flash", "routing=order") {
+	if f.calledPrefix("group", "add", "mb-fast") {
 		t.Fatal("init wrote a group without knowing which exist")
 	}
 }
@@ -609,5 +608,68 @@ func TestRouterInitClaudeCodeLeavesARouterModelSetting(t *testing.T) {
 	}
 	if !strings.Contains(out, "group/mbridge[1m]") {
 		t.Fatalf("init didn't say why it left ANTHROPIC_MODEL out:\n%s", out)
+	}
+}
+
+// servedDeepSeekKimiCN is what magpie 74b30cb's /v1/models lists with only
+// deepseek, moonshot-cn and typesafe added (2026-10-12, real catalog ids).
+var servedDeepSeekKimiCN = []string{
+	"deepseek/deepseek-flash", "deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-pro",
+	"moonshot-cn/kimi-k3", "moonshot-cn/kimi-k2.7-code", "moonshot-cn/kimi-k2.7-code-highspeed", "moonshot-cn/kimi-k2.6",
+	"typesafe/jev-latest",
+}
+
+// The blog's reader: DeepSeek and Kimi (China) only, no GLM provider. init
+// with --preset cn used to stop at `magpie group add mb-fast` because the
+// preset named glm/glm-5.3-flash, which magpie refuses. Every tier now gets
+// served members only, performance a domestic model of its own.
+func TestRouterInitCnWithOnlyDeepSeekAndKimi(t *testing.T) {
+	f := withFakeMagpie(t, servedDeepSeekKimiCN...)
+	if _, err := captureStdout(t, func() error {
+		return routerInit([]string{"--preset", "cn", "--groups-only"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"mb-fast":     "deepseek/deepseek-flash",
+		"mb-balanced": "moonshot-cn/kimi-k2.7-code",
+		"mb-perf":     "moonshot-cn/kimi-k3:high",
+	}
+	for id, first := range want {
+		m, ok := groupMembers(f, id)
+		if !ok || len(m) == 0 || m[0] != first {
+			t.Fatalf("%s = %v, want it led by %s", id, m, first)
+		}
+		for _, x := range m {
+			if strings.HasPrefix(x, "glm/") || strings.HasPrefix(x, "zhipu/") || strings.HasPrefix(x, "<p>/") {
+				t.Fatalf("%s has a member nothing serves: %v", id, m)
+			}
+		}
+	}
+}
+
+// A group the user already has is kept, so init has no business saying it
+// "uses mb-…'s members for now" (seen 10-12: printed for a kept mb-perf).
+func TestRouterInitKeptGroupIsNotBorrowedInto(t *testing.T) {
+	f := withFakeMagpie(t, servedDeepSeekKimiCN...)
+	f.mu.Lock()
+	f.groups["mb-perf"] = []string{"deepseek/deepseek-v4-pro"}
+	f.order = append(f.order, "mb-perf")
+	f.mu.Unlock()
+	// frontier: only its fast members are served here
+	out, err := captureStdout(t, func() error {
+		return routerInit([]string{"--preset", "frontier", "--groups-only"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "mb-perf: none of the preset's models") {
+		t.Fatalf("init said it borrowed for a group it keeps:\n%s", out)
+	}
+	if !strings.Contains(out, "mb-balanced: none of the preset's models") {
+		t.Fatalf("init did not say mb-balanced borrowed:\n%s", out)
+	}
+	if m, _ := groupMembers(f, "mb-perf"); strings.Join(m, ",") != "deepseek/deepseek-v4-pro" {
+		t.Fatalf("mb-perf changed: %v", m)
 	}
 }
