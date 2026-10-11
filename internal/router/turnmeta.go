@@ -17,8 +17,21 @@ const turnMetaHeader = "x-codex-turn-metadata"
 // client_metadata["x-codex-turn-metadata"] object's turn_id field.
 // Anything unreadable returns "".
 func CodexTurnID(h http.Header, body []byte) string {
-	if id := turnIDFromValue(h.Get(turnMetaHeader)); id != "" {
-		return id
+	return codexMetaField(h, body, "turn_id")
+}
+
+// CodexThreadSource is the turn metadata's thread_source: "user" for a
+// turn the user typed, "thread_title" for the TUI's request that names the
+// thread (Codex 0.162.1). "" when the request carries none.
+func CodexThreadSource(h http.Header, body []byte) string {
+	return codexMetaField(h, body, "thread_source")
+}
+
+// codexMetaField reads one string field of the turn metadata, from the
+// header first and then the body.
+func codexMetaField(h http.Header, body []byte, field string) string {
+	if v := fieldFromValue(h.Get(turnMetaHeader), field); v != "" {
+		return v
 	}
 	if len(body) == 0 || len(body) > maxTurnMetaBody {
 		return ""
@@ -44,9 +57,9 @@ func CodexTurnID(h http.Header, body []byte) string {
 		if !rawInto(raw, &obj) {
 			return ""
 		}
-		return turnIDFromObject(obj)
+		return fieldFromObject(obj, field)
 	}
-	return turnIDFromValue(value)
+	return fieldFromValue(value, field)
 }
 
 // rawInto unmarshals a RawMessage into v, tolerating one level of
@@ -66,8 +79,8 @@ func rawInto(raw json.RawMessage, v any) bool {
 	return json.Unmarshal([]byte(s), v) == nil
 }
 
-// turnIDFromValue parses a header/metadata string and returns its turn_id.
-func turnIDFromValue(s string) string {
+// fieldFromValue parses a header/metadata string and returns one field.
+func fieldFromValue(s, field string) string {
 	if s == "" {
 		return ""
 	}
@@ -75,18 +88,18 @@ func turnIDFromValue(s string) string {
 	if json.Unmarshal([]byte(s), &obj) != nil {
 		return ""
 	}
-	return turnIDFromObject(obj)
+	return fieldFromObject(obj, field)
 }
 
-// turnIDFromObject returns the turn_id string field of a parsed object.
-func turnIDFromObject(obj map[string]json.RawMessage) string {
-	raw, ok := obj["turn_id"]
+// fieldFromObject is a string field of the metadata object, "" otherwise.
+func fieldFromObject(obj map[string]json.RawMessage, field string) string {
+	raw, ok := obj[field]
 	if !ok {
 		return ""
 	}
-	var id string
-	if json.Unmarshal(raw, &id) != nil {
+	var v string
+	if json.Unmarshal(raw, &v) != nil {
 		return ""
 	}
-	return id
+	return v
 }

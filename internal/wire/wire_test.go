@@ -177,7 +177,10 @@ func TestPreviousAnswerFromRecordedRequests(t *testing.T) {
 // gateway must read the prompt the UserPromptSubmit hook saw, or the hint
 // the hook left never matches and the turn is classified twice (10-11).
 func TestUserTextStripsCodexEnvironmentContext(t *testing.T) {
-	if got := wire.UserText(parseFixture(t, "responses-codex-turn1.json")); got != "read the fixture file" {
-		t.Fatalf("UserText = %q", got)
+	// codex exec puts both in one message; the TUI sends two
+	for _, name := range []string{"responses-codex-turn1.json", "responses-codex-tui-turn1.json"} {
+		if got := wire.UserText(parseFixture(t, name)); got != "read the fixture file" {
+			t.Fatalf("%s: UserText = %q", name, got)
+		}
 	}
 }

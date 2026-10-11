@@ -13,7 +13,7 @@ import (
 // Event is one line of router.jsonl: a decision, a hint consumed, a
 // feedback signal, or a shadow-tier log entry.
 type Event struct {
-	Kind       string  `json:"kind"` // decide | hint_consumed | feedback | shadow
+	Kind       string  `json:"kind"` // decide | hint_consumed | feedback | shadow | aux
 	Time       string  `json:"t"`    // RFC3339
 	Session    string  `json:"session,omitempty"`
 	Harness    string  `json:"harness,omitempty"`

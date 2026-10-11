@@ -206,3 +206,69 @@ func TestRouteCodexFirstTurnTakesTheHooksHint(t *testing.T) {
 		t.Fatalf("classified again: %+v", fc.questions)
 	}
 }
+
+// codexFixture is a recorded Codex request: its headers and body as Codex
+// 0.162.1's TUI sent them.
+func codexFixture(t *testing.T, name string) (http.Header, []byte, *wire.Request) {
+	t.Helper()
+	b, err := os.ReadFile("../wire/testdata/" + name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fx struct {
+		Headers map[string]string `json:"headers"`
+		Body    json.RawMessage   `json:"body"`
+	}
+	if err := json.Unmarshal(b, &fx); err != nil {
+		t.Fatal(err)
+	}
+	h := http.Header{}
+	for k, v := range fx.Headers {
+		h.Set(k, v)
+	}
+	req, err := wire.Parse(wire.Responses, fx.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h, fx.Body, req
+}
+
+// 10-11: Codex's TUI asks for a thread title in a side session of its own
+// (x-codex-turn-metadata thread_source "thread_title"). It was classified
+// like a turn, a 2.4s Jev call for a 36-character title. It goes to the
+// fast tier unclassified, logged as kind "aux" so reports don't count it
+// as a turn; the user's own turn is still classified.
+func TestRouteCodexThreadTitleGoesFastUnclassified(t *testing.T) {
+	d, fc, events := testDeps(t, &Verdict{Tier: TierPerformance, TierConfidence: 0.9})
+	r := NewRouter(d)
+
+	h, body, req := codexFixture(t, "responses-codex-tui-thread-title.json")
+	got, ok := r.Route(context.Background(), h, body, req, "codex")
+	if !ok || got.Tier != TierFast || got.Reason != "codex-title" {
+		t.Fatalf("title routed %+v ok=%v", got, ok)
+	}
+	if len(fc.questions) != 0 {
+		t.Fatalf("title classified: %+v", fc.questions)
+	}
+	var aux, decides int
+	for _, ev := range *events {
+		switch ev.Kind {
+		case "aux":
+			aux++
+		case "decide":
+			decides++
+		}
+	}
+	if aux != 1 || decides != 0 {
+		t.Fatalf("events: %+v", *events)
+	}
+
+	// the turn the user typed is classified as before
+	h, body, req = codexFixture(t, "responses-codex-tui-turn1.json")
+	if got, _ := r.Route(context.Background(), h, body, req, "codex"); got.Tier != TierPerformance || len(fc.questions) != 1 {
+		t.Fatalf("user turn: %+v, %d questions", got, len(fc.questions))
+	}
+	if fc.questions[0].Message != "read the fixture file" {
+		t.Fatalf("classified %q", fc.questions[0].Message)
+	}
+}
