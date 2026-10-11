@@ -216,7 +216,7 @@ func TestRouterInitClaudeCodeEnv(t *testing.T) {
 	if err := os.Chdir(cwd); err != nil {
 		t.Fatal(err)
 	}
-	if err := routerInitClaudeCode(); err != nil {
+	if err := routerInitClaudeCode(false); err != nil {
 		t.Fatal(err)
 	}
 	b, err := os.ReadFile(filepath.Join(cwd, ".claude", "settings.local.json"))
@@ -516,5 +516,98 @@ func TestRouterInitWarnsOfAKeptGroupItCantServe(t *testing.T) {
 	}
 	if strings.Contains(out, "group/mb-fast: magpie serves none") {
 		t.Fatalf("a served group warned about:\n%s", out)
+	}
+}
+
+// readClaudeEnv is the env object of a Claude Code settings file.
+func readClaudeEnv(t *testing.T, path string) map[string]string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var s struct {
+		Env map[string]string `json:"env"`
+	}
+	if err := json.Unmarshal(b, &s); err != nil {
+		t.Fatal(err)
+	}
+	return s.Env
+}
+
+// 10-11: the user runs Claude Code on group/mbridge[1m]. init wrote
+// ANTHROPIC_MODEL=group/mbridge into the project's settings.local.json over
+// what was there, and an env model outranks the "model" setting, so the
+// project lost [1m]. init keeps what the user set; --force puts its own back.
+func TestRouterInitClaudeCodeKeepsTheUsersValues(t *testing.T) {
+	routerHome(t)
+	cwd := t.TempDir()
+	old, _ := os.Getwd()
+	defer os.Chdir(old)
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	local := filepath.Join(cwd, ".claude", "settings.local.json")
+	os.MkdirAll(filepath.Dir(local), 0o755)
+	mine := `{"env":{"ANTHROPIC_MODEL":"group/mbridge[1m]","ANTHROPIC_DEFAULT_OPUS_MODEL":"group/mb-perf[1m]","MY_VAR":"x"},"permissions":{"allow":["Bash(ls)"]}}`
+	if err := os.WriteFile(local, []byte(mine), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := captureStdout(t, func() error { return routerInitClaudeCode(false) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := readClaudeEnv(t, local)
+	if env["ANTHROPIC_MODEL"] != "group/mbridge[1m]" || env["ANTHROPIC_DEFAULT_OPUS_MODEL"] != "group/mb-perf[1m]" || env["MY_VAR"] != "x" {
+		t.Fatalf("user's values changed: %v", env)
+	}
+	if env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] != "group/mb-fast" || env["ANTHROPIC_DEFAULT_SONNET_MODEL"] != "group/mb-balanced" {
+		t.Fatalf("missing keys not added: %v", env)
+	}
+	if !strings.Contains(out, "kept") || !strings.Contains(out, "ANTHROPIC_MODEL") {
+		t.Fatalf("init didn't say what it kept:\n%s", out)
+	}
+	if b, _ := os.ReadFile(local); !strings.Contains(string(b), `"Bash(ls)"`) {
+		t.Fatalf("other settings lost: %s", b)
+	}
+
+	if _, err := captureStdout(t, func() error { return routerInitClaudeCode(true) }); err != nil {
+		t.Fatal(err)
+	}
+	if env := readClaudeEnv(t, local); env["ANTHROPIC_MODEL"] != "group/mbridge" || env["MY_VAR"] != "x" {
+		t.Fatalf("--force: %v", env)
+	}
+}
+
+// The user's own "model" (~/.claude/settings.json) already routes through
+// group/mbridge, with [1m]: init writes no ANTHROPIC_MODEL, which would
+// outrank it in this project.
+func TestRouterInitClaudeCodeLeavesARouterModelSetting(t *testing.T) {
+	routerHome(t)
+	home, _ := os.UserHomeDir()
+	user := filepath.Join(home, ".claude", "settings.json")
+	os.MkdirAll(filepath.Dir(user), 0o755)
+	if err := os.WriteFile(user, []byte(`{"model":"group/mbridge[1m]"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwd := t.TempDir()
+	old, _ := os.Getwd()
+	defer os.Chdir(old)
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	out, err := captureStdout(t, func() error { return routerInitClaudeCode(false) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := readClaudeEnv(t, filepath.Join(cwd, ".claude", "settings.local.json"))
+	if _, ok := env["ANTHROPIC_MODEL"]; ok {
+		t.Fatalf("ANTHROPIC_MODEL written over the user's model setting: %v", env)
+	}
+	if env["ANTHROPIC_DEFAULT_OPUS_MODEL"] != "group/mb-perf" {
+		t.Fatalf("tier aliases not written: %v", env)
+	}
+	if !strings.Contains(out, "group/mbridge[1m]") {
+		t.Fatalf("init didn't say why it left ANTHROPIC_MODEL out:\n%s", out)
 	}
 }

@@ -112,7 +112,7 @@ mbridge router check                  # 检查分组是否齐全、上下文窗�
 
 `router init` 的三套预设（`frontier`、`anthropic`、`cn`）只决定第一次建分组时的成员。之后分组归你管：再次执行 `router init` 不会改动它们，除非加 `--force`。
 
-`mb-fast`、`mb-balanced`、`mb-perf`、`mbridge` 这四个分组名归 Magpie Bridge 使用，别拿它们做别的用途。再次执行 `mbridge router init` 会保留已有的同名分组和 `router.json`，只补上缺的部分，并接好各 Agent；加 `--force` 才会用预设覆盖它们。
+`mb-fast`、`mb-balanced`、`mb-perf`、`mbridge` 这四个分组名归 Magpie Bridge 使用，别拿它们做别的用途。再次执行 `mbridge router init` 会保留已有的同名分组、`router.json`，以及当前项目 `.claude/settings.local.json` 里你已设过的 `ANTHROPIC_*` 值，只补上缺的部分，并接好各 Agent；加 `--force` 才会用预设覆盖它们。你的 Claude Code `model` 设置已经是 `group/mbridge`（含 `[1m]`）时，init 不写 `ANTHROPIC_MODEL`，以免环境变量盖过它。
 
 ### `router.json`
 
