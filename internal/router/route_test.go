@@ -2,7 +2,9 @@ package router
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"os"
 	"testing"
 
 	"github.com/weiping/magpie-bridge/internal/wire"
@@ -167,5 +169,40 @@ func TestRoutePassesThePreviousAnswer(t *testing.T) {
 	route(h, hdr("s1"), req, "codex")
 	if len(fc.questions) != 1 || fc.questions[0].PreviousAnswer != "提议：改三个工作流" {
 		t.Fatalf("questions: %+v", fc.questions)
+	}
+}
+
+// 10-11: Codex's first turn was classified by the hook and again by the
+// gateway, because the gateway read <environment_context> as part of the
+// prompt and missed the hint. The recorded first request now finds the hint
+// the hook left for its prompt.
+func TestRouteCodexFirstTurnTakesTheHooksHint(t *testing.T) {
+	b, err := os.ReadFile("../wire/testdata/responses-codex-turn1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fx struct {
+		Body json.RawMessage `json:"body"`
+	}
+	if err := json.Unmarshal(b, &fx); err != nil {
+		t.Fatal(err)
+	}
+	req, err := wire.Parse(wire.Responses, fx.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, fc, _ := testDeps(t, &Verdict{Tier: TierPerformance, TierConfidence: 0.9})
+	// what the UserPromptSubmit hook's /turn stored: the prompt alone. The
+	// turn ids don't meet here (10-11: turn 1 missed and turn 2, with no
+	// environment_context, hit), so the hint is found by session and prompt.
+	d.Hints.Put(Hint{Key: HintKey{Session: "s-codex", TurnID: "hook-turn", PromptHash: PromptHash("read the fixture file")}, Tier: TierFast})
+	h := http.Header{}
+	h.Set("session-id", "s-codex")
+	hit := route(NewRouter(d), h, req, "codex")
+	if !hit.Hint || hit.Tier != TierFast {
+		t.Fatalf("hint not taken: %+v", hit)
+	}
+	if len(fc.questions) != 0 {
+		t.Fatalf("classified again: %+v", fc.questions)
 	}
 }

@@ -362,7 +362,15 @@ func mergeTurns(msgs []Message) []Message {
 
 // --- what the router reads ---
 
-var reminders = regexp.MustCompile(`(?s)<system-reminder>.*?</system-reminder>`)
+// injected matches what agents put into a user message that the user
+// didn't say: Claude Code's <system-reminder> blocks and Codex's
+// <environment_context> (cwd, shell, date…, in the first turn's message).
+var injected = regexp.MustCompile(`(?s)<system-reminder>.*?</system-reminder>|<environment_context>.*?</environment_context>`)
+
+// StripInjected removes those blocks: what is left is the user's words.
+// UserText and router.PromptHash both read prompts through it, so a hook's
+// prompt and the gateway's reading of the same turn hash alike.
+func StripInjected(s string) string { return injected.ReplaceAllString(s, "") }
 
 // UserText is what the user said to begin the turn: the last user
 // message's text without <system-reminder> blocks, its middle left out
@@ -381,7 +389,7 @@ func UserText(r *Request) string {
 		}
 		break
 	}
-	text := strings.TrimSpace(reminders.ReplaceAllString(strings.Join(parts, "\n"), ""))
+	text := strings.TrimSpace(StripInjected(strings.Join(parts, "\n")))
 	const head, tail = 3000, 1000
 	if rs := []rune(text); len(rs) > head+tail {
 		text = string(rs[:head]) + "\n…\n" + string(rs[len(rs)-tail:])
