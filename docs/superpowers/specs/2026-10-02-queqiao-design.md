@@ -219,7 +219,7 @@ Pi 的流程与 Claude Code 相似，第 ① 步由 `before_agent_start` 发起�
 
 | 档位 | 候选成员 |
 | --- | --- |
-| fast | `<p>/deepseek-flash`、`<p>/glm-5.3-flash:high`、`<p>/gemini-3.8-flash:low` |
+| fast | `<p>/deepseek-flash`、`<p>/glm-5.3-flash:high`、`<p>/gemini-3.8-flash:low`、`<p>/gpt-6-luna:low` |
 | balanced | `<p>/gpt-6.1-sol:medium`、`<p>/claude-sonnet-5-5:medium` |
 | performance | `<p>/gpt-6-astra:low`、`<p>/claude-opus-5-5:high` |
 
@@ -235,9 +235,11 @@ Pi 的流程与 Claude Code 相似，第 ① 步由 `before_agent_start` 发起�
 
 | 档位 | 候选成员 |
 | --- | --- |
-| fast | `<p>/deepseek-flash`、`<p>/glm-5.3-flash:high`、`<p>/kimi-k2.7-code-highspeed`、`<p>/qwen3.8-flash:low` |
+| fast | `<p>/deepseek-flash`、`<p>/glm-5.3-flash:high`、`<p>/qwen3.8-flash:low` |
 | balanced | `<p>/kimi-k2.7-code`、`<p>/glm-5.3:high`、`<p>/deepseek-v4-pro:high` |
-| performance | `<p>/kimi-k3:high`、`<p>/deepseek-v4-pro:max`、`<p>/glm-5.3:max` |
+| performance | `<p>/kimi-k3:high`、`<p>/deepseek-v4-pro:max`、`<p>/glm-5.3:max`、`<p>/qwen3.8-max:xhigh` |
+
+选型依据（2026-10-12 核对厂商文档）。DeepSeek 当前 ID 是 `deepseek-flash`（V4.1 Flash）和 `deepseek-v4-pro`，`deepseek-v4-flash` 是仍被接受的旧名。OpenAI GPT-6 三档从强到弱是 Astra、Sol、Luna，GPT-6.1 目前只有 Sol。Kimi 的旗舰是 `kimi-k3`，`kimi-k2.7-code-highspeed` 价格是 `kimi-k2.7-code` 的两倍，不放进 fast；`kimi-k2.5` 已于 8 月 31 日下线。fast 档的候选都要比 balanced 档主成员便宜。
 
 `<p>/` 让同一个模型 ID 落到任何提供它的 Provider（如 `moonshot`、`moonshot-cn`、`qwen-cn` 都提供 `kimi-k3`）。一档的候选一个也没解析出来时，先借用最近一档的成员（performance 借 balanced），`router init` 打印 `magpie group set mb-perf models=…` 提示用户换成自己的模型；该档的组已经存在时保留原样，不借也不提示。
 

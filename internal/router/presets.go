@@ -15,11 +15,14 @@ type Preset struct {
 }
 
 // presets holds §4.3's three presets (model ids as magpie's catalog names
-// them on 2026-10-12). A member nothing configured serves is left out, so
-// a tier lists a few candidates and gets the ones the user has.
+// them on 2026-10-12, checked against the vendors' docs). A member nothing
+// configured serves is left out, so a tier lists a few candidates and gets
+// the ones the user has. A fast candidate costs less than the balanced
+// tier's lead: kimi-k2.7-code-highspeed ($1.90/$8) costs twice
+// kimi-k2.7-code and so is no fast member.
 var presets = map[string]Preset{
 	"frontier": {ID: "frontier", Tiers: map[Tier][]string{
-		TierFast:        {"<p>/deepseek-flash", "<p>/glm-5.3-flash:high", "<p>/gemini-3.8-flash:low"},
+		TierFast:        {"<p>/deepseek-flash", "<p>/glm-5.3-flash:high", "<p>/gemini-3.8-flash:low", "<p>/gpt-6-luna:low"},
 		TierBalanced:    {"<p>/gpt-6.1-sol:medium", "<p>/claude-sonnet-5-5:medium"},
 		TierPerformance: {"<p>/gpt-6-astra:low", "<p>/claude-opus-5-5:high"},
 	}},
@@ -29,9 +32,9 @@ var presets = map[string]Preset{
 		TierPerformance: {"anthropic/claude-opus-5-5:high", "openrouter/anthropic/claude-opus-5.5:high"},
 	}},
 	"cn": {ID: "cn", Tiers: map[Tier][]string{
-		TierFast:        {"<p>/deepseek-flash", "<p>/glm-5.3-flash:high", "<p>/kimi-k2.7-code-highspeed", "<p>/qwen3.8-flash:low"},
+		TierFast:        {"<p>/deepseek-flash", "<p>/glm-5.3-flash:high", "<p>/qwen3.8-flash:low"},
 		TierBalanced:    {"<p>/kimi-k2.7-code", "<p>/glm-5.3:high", "<p>/deepseek-v4-pro:high"},
-		TierPerformance: {"<p>/kimi-k3:high", "<p>/deepseek-v4-pro:max", "<p>/glm-5.3:max"},
+		TierPerformance: {"<p>/kimi-k3:high", "<p>/deepseek-v4-pro:max", "<p>/glm-5.3:max", "<p>/qwen3.8-max:xhigh"},
 	}},
 }
 
