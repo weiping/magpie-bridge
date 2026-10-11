@@ -97,9 +97,9 @@ mbridge 的路由配置有两处：magpie 里的四个路由组（存在 magpie 
 ```sh
 magpie models                         # 先查可用的模型名（provider/model）
 magpie group mb-fast                  # 看一个组现在的成员
-magpie group set mb-fast models=deepseek/deepseek-v4-flash:high,glm/glm-5.3-flash:high
+magpie group set mb-fast models=deepseek/deepseek-flash:high,zhipu/glm-5.3-flash:high
 magpie group set mb-perf models+=anthropic/claude-opus-5-5:high   # 在末尾追加一个
-magpie group set mb-perf models-=glm/glm-5.3                       # 去掉一个
+magpie group set mb-perf models-=zhipu/glm-5.3:max                # 去掉一个
 magpie groups                         # 确认三档都对
 mbridge router check                  # 检查分组是否齐全、上下文窗口够不够
 ```
@@ -110,7 +110,7 @@ mbridge router check                  # 检查分组是否齐全、上下文窗�
 - `mbridge` 这个路由组的成员就是三个档位组（`group/mb-balanced`、`group/mb-perf`、`group/mb-fast`），不要改成具体模型。
 - 想改的是「什么样的问题进哪一档」，那是 `router.json` 里各档的 `criteria`，见下一节。
 
-`router init` 的三套预设（`frontier`、`anthropic`、`cn`）只决定第一次建分组时的成员。之后分组归你管：再次执行 `router init` 不会改动它们，除非加 `--force`。
+`router init` 的三套预设（`frontier`、`anthropic`、`cn`）只决定第一次建分组时的成员：每档列几个候选模型，只有 magpie 里有厂商提供的才写进组，没有的跳过并提示（候选见[设计文档 §4.3](docs/superpowers/specs/2026-10-02-queqiao-design.md)）。之后分组归你管：再次执行 `router init` 不会改动它们，除非加 `--force`。
 
 `mb-fast`、`mb-balanced`、`mb-perf`、`mbridge` 这四个分组名归 Magpie Bridge 使用，别拿它们做别的用途。再次执行 `mbridge router init` 会保留已有的同名分组、`router.json`，以及当前项目 `.claude/settings.local.json` 里你已设过的 `ANTHROPIC_*` 值，只补上缺的部分，并接好各 Agent；加 `--force` 才会用预设覆盖它们。你的 Claude Code `model` 设置已经是 `group/mbridge`（含 `[1m]`）时，init 不写 `ANTHROPIC_MODEL`，以免环境变量盖过它。
 
