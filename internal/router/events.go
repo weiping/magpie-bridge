@@ -39,6 +39,8 @@ type Event struct {
 	Classifier       string   `json:"classifier,omitempty"`
 	// SP11: the classifier was given the reply before the prompt.
 	PreviousAnswer bool `json:"previous_answer,omitempty"`
+	// why the classification failed, when it did (R7-carry, R8-default)
+	ClassifyError string `json:"classify_error,omitempty"`
 }
 
 var (

@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func readFixture(t *testing.T) string {
@@ -298,5 +299,29 @@ func TestGroupMissingOrUnreadable(t *testing.T) {
 	}
 	if g, err := c.Group(context.Background(), "mb-perf"); err == nil {
 		t.Fatalf("no models line read as %+v", g)
+	}
+}
+
+// A request that runs out of time is a timeout, not "can't reach magpie":
+// the error keeps context.DeadlineExceeded so callers can tell the two
+// apart (the router's classify log, 10-11).
+func TestTimeoutIsATimeout(t *testing.T) {
+	block := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-block }))
+	defer srv.Close()
+	defer close(block)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	_, err := New(srv.URL).SystemOne(ctx, []byte(`{}`))
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err %v doesn't say deadline", err)
+	}
+	if strings.Contains(err.Error(), "can't reach") {
+		t.Fatalf("a slow magpie called unreachable: %v", err)
+	}
+	// nothing listening is still "can't reach"
+	_, err = New("http://127.0.0.1:1").SystemOne(context.Background(), []byte(`{}`))
+	if err == nil || !strings.Contains(err.Error(), "can't reach") {
+		t.Fatalf("err %v", err)
 	}
 }

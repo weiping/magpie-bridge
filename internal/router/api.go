@@ -6,13 +6,19 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
+
+// logf writes to mbridge.log (serve points the standard logger there).
+var logf = log.Printf
 
 // reminders matches the <system-reminder> blocks agents tack onto prompts.
 var reminders = regexp.MustCompile(`(?s)<system-reminder>.*?</system-reminder>`)
@@ -125,6 +131,7 @@ func (d *Deps) Decide(ctx context.Context, in DecideInput) Decided {
 	// R2 (plan mode) decide without one.
 	_, fixed := pc.FixedAgents[in.Agent]
 	var classified *Verdict
+	var classifyErr string
 	source := "default"
 	if !fixed && !in.PlanMode && d.Classify != nil && in.Prompt != "" {
 		q := Question{
@@ -140,8 +147,20 @@ func (d *Deps) Decide(ctx context.Context, in DecideInput) Decided {
 		if prev != nil {
 			q.PreviousTier = prev.Tier
 		}
+		cstart := time.Now()
 		if v, err := d.Classify.Classify(ctx, q); err == nil {
 			classified, source = v, classifySource(cfg.Classifier)
+		} else {
+			// say why: a timeout and an error magpie answered need
+			// different fixes. Lengths only, never the prompt itself.
+			classifyErr = classifyFailure(err)
+			short := in.Session
+			if len(short) > 8 {
+				short = short[:8]
+			}
+			logf("classify failed: session %s %s agent %s, prompt %d runes, previous_answer %d runes, after %dms: %s",
+				short, in.Harness, in.Agent, utf8.RuneCountInString(in.Prompt), utf8.RuneCountInString(in.PreviousAnswer),
+				time.Since(cstart).Milliseconds(), classifyErr)
 		}
 	}
 
@@ -187,6 +206,7 @@ func (d *Deps) Decide(ctx context.Context, in DecideInput) Decided {
 		Arm: arm, Confidence: res.Confidence, LatencyMs: res.LatencyMs,
 		TurnID: turnID, WouldReview: decision.WouldReview,
 		PreviousAnswer: classified != nil && in.PreviousAnswer != "",
+		ClassifyError:  classifyErr,
 	}
 	if classified != nil {
 		ev.ClassifiedTier, ev.Classifier = classified.Tier, classified.Source
@@ -400,4 +420,16 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// classifyFailure names why a classification failed: the classify timeout,
+// the client giving up first, or magpie's own error.
+func classifyFailure(err error) string {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout (classify_timeout_ms): " + err.Error()
+	case errors.Is(err, context.Canceled):
+		return "canceled: the client stopped waiting: " + err.Error()
+	}
+	return err.Error()
 }

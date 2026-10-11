@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/weiping/magpie-bridge/internal/magpie"
 )
 
 var errClassify = errors.New("classify failed")
@@ -522,5 +525,88 @@ func TestTurnPassesThePreviousAnswer(t *testing.T) {
 	}
 	if !marked {
 		t.Fatalf("decide not marked previous_answer: %+v", *events)
+	}
+}
+
+// A classification that fails says why, in mbridge.log and in the decide
+// record: 10-11 had two R8-default turns at exactly classify_timeout_ms and
+// nothing anywhere said whether magpie timed out or answered an error.
+func TestClassifyFailureIsRecorded(t *testing.T) {
+	for _, c := range []struct {
+		name, want string
+		err        error
+	}{
+		{"timeout", "timeout", context.DeadlineExceeded},
+		{"magpie error", "magpie /v1/systemone: 429 quota", errors.New("magpie /v1/systemone: 429 quota")},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			d, fc, events := testDeps(t, nil)
+			fc.err = c.err
+			var logged []string
+			old := logf
+			logf = func(format string, args ...any) { logged = append(logged, fmt.Sprintf(format, args...)) }
+			t.Cleanup(func() { logf = old })
+
+			res := d.Decide(context.Background(), DecideInput{
+				Session: "58dcf164-aaaa", Key: "58dcf164-aaaa", Harness: "claude-code", Agent: "main",
+				Prompt: "看看 README 有没有错别字", PreviousAnswer: "上一轮的回答",
+			})
+			if res.Reason != "R8-default" {
+				t.Fatalf("reason %s", res.Reason)
+			}
+			var ev *Event
+			for i := range *events {
+				if (*events)[i].Kind == "decide" {
+					ev = &(*events)[i]
+				}
+			}
+			if ev == nil || !strings.Contains(ev.ClassifyError, c.want) {
+				t.Fatalf("decide record: %+v", ev)
+			}
+			if len(logged) != 1 {
+				t.Fatalf("logged %q", logged)
+			}
+			for _, want := range []string{"classify failed", "58dcf164", "claude-code", "main", "prompt 16 runes", "previous_answer 6 runes", c.want} {
+				if !strings.Contains(logged[0], want) {
+					t.Fatalf("log line lacks %q: %s", want, logged[0])
+				}
+			}
+			if strings.Contains(logged[0], "README") {
+				t.Fatalf("log line carries the prompt: %s", logged[0])
+			}
+		})
+	}
+	// a classification that works logs nothing
+	d, _, events := testDeps(t, &Verdict{Tier: TierFast, TierConfidence: 0.9})
+	var logged []string
+	old := logf
+	logf = func(format string, args ...any) { logged = append(logged, fmt.Sprintf(format, args...)) }
+	t.Cleanup(func() { logf = old })
+	d.Decide(context.Background(), DecideInput{Session: "s", Key: "s", Agent: "main", Prompt: "hi"})
+	if len(logged) != 0 || (*events)[len(*events)-1].ClassifyError != "" {
+		t.Fatalf("logged %q, record %+v", logged, (*events)[len(*events)-1])
+	}
+}
+
+// The real path: Jev over magpie's /v1/systemone, magpie slower than
+// classify_timeout_ms. The record says timeout, not "can't reach".
+func TestClassifyTimeoutThroughMagpieIsATimeout(t *testing.T) {
+	block := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-block }))
+	defer srv.Close()
+	defer close(block)
+	d, _, events := testDeps(t, nil)
+	cfg := d.Config
+	cfg.Classifier, cfg.ClassifyTimeoutMs = "typesafe/jev-latest", 50
+	d.Config = cfg
+	d.Classify = NewClassifier(cfg, AskVia(magpie.New(srv.URL)))
+	old := logf
+	logf = func(string, ...any) {}
+	t.Cleanup(func() { logf = old })
+
+	d.Decide(context.Background(), DecideInput{Session: "s", Key: "s", Agent: "main", Prompt: "hi"})
+	ev := (*events)[len(*events)-1]
+	if !strings.HasPrefix(ev.ClassifyError, "timeout") || strings.Contains(ev.ClassifyError, "can't reach") {
+		t.Fatalf("classify_error %q", ev.ClassifyError)
 	}
 }
