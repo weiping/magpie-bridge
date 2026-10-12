@@ -348,3 +348,54 @@ func TestCLIOutputDropsMagpieLogLines(t *testing.T) {
 		t.Fatalf("error %v", err)
 	}
 }
+
+// `magpie group <id>` for a group with rules, as magpie 0.1.1184 printed
+// mb-native (10-12): the rules section follows the models, then the
+// classifier line.
+const groupShowWithRules = `  mb-native  group/mb-native
+  routing   order
+  stays     turn
+  models    1 group/mb-perf  routing group mb-perf · order · kimi-code-cn/k3, antigravity/claude-opus-4-6-thinking, copilot/claude-sonnet-5.5, antigravity/claude-sonnet-4-6, copilot/gpt-6-luna, copilot/grok-4.7, grok/grok-4.7, deepseek/deepseek-v4-pro
+            2 group/mb-native-balanced  routing group mb-native-balanced · order · zhipu/glm-5.3, deepseek/deepseek-v4-pro:medium, kimi-code-cn/k3:medium, kimi-code-cn/kimi-for-coding, minimax-cn/MiniMax-M3, copilot/claude-sonnet-5.5:medium, antigravity/claude-sonnet-4-6:medium, copilot/gpt-6-luna:medium
+            3 group/mb-fast  routing group mb-fast · order · deepseek/deepseek-flash:high, minimax-cn/MiniMax-M3.1-Flash-Preview, zhipu/glm-5.3-flash:high, copilot/gemini-3.8-flash, antigravity/gemini-3.8-flash, copilot/claude-haiku-5.5, copilot/auto
+  rules     1 intent "Little work: a question, an explanation, reading logs, running a command, a one-line or mechanical change, a read-only code search" → group/mb-fast
+            2 intent "Some work: an ordinary bug fix or a small feature in code already understood, adding tests, a single-file refactor" → group/mb-native-balanced
+            3 intent "Much work: a change across several files, a bug whose cause is unknown, concurrency, performance or security issues, an architecture or design decision, a long multi-step plan" → group/mb-perf
+            4 tokens ≥ 1 → group/mb-native-balanced
+  classifier typesafe/jev-latest  tells which intent a message is
+`
+
+func TestGroupRuleAddArgs(t *testing.T) {
+	var got []string
+	c := New("http://127.0.0.1:1")
+	c.Bin = "magpie"
+	c.Run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		got = append([]string{name}, args...)
+		return nil, nil
+	}
+	if err := c.GroupRuleAdd(context.Background(), "mb-native", "use=group/mb-fast", "classifier=typesafe/jev-latest", "intent=Little work: a question"); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"magpie", "group", "rule", "add", "mb-native", "use=group/mb-fast", "classifier=typesafe/jev-latest", "intent=Little work: a question"}
+	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("args %q", got)
+	}
+}
+
+func TestGroupReadsHowManyRules(t *testing.T) {
+	c := New("http://127.0.0.1:1")
+	out := groupShowWithRules
+	c.Run = func(ctx context.Context, name string, args ...string) ([]byte, error) { return []byte(out), nil }
+	g, err := c.Group(context.Background(), "mb-native")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.Rules != 4 || len(g.Members) != 3 || g.Members[1].Model != "group/mb-native-balanced" {
+		t.Fatalf("rules %d, members %+v", g.Rules, g.Members)
+	}
+	// a group without rules has no rules section
+	out = groupShowServed
+	if g, err = c.Group(context.Background(), "mb-fast"); err != nil || g.Rules != 0 {
+		t.Fatalf("%+v %v", g, err)
+	}
+}

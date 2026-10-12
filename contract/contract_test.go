@@ -146,6 +146,50 @@ func TestContractGroupShowsUnservedMembers(t *testing.T) {
 	}
 }
 
+// SP12: `router init --native` adds intent rules to a group of groups. magpie
+// takes them with a classifier, `magpie group <id>` counts them, and a
+// group of the same name made again starts without any (so --force does not
+// pile a second set on the first).
+func TestContractGroupRulesAreAddedCountedAndReplaced(t *testing.T) {
+	_, c := start(t)
+	ctx := context.Background()
+	for id, m := range map[string]string{"mb-fast": "fake/m1", "mb-perf": "fake/m2"} {
+		if err := c.GroupAdd(ctx, id, []string{m}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	members := []string{"group/mb-perf", "group/mb-fast"}
+	if err := c.GroupAdd(ctx, "mb-native", members); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.GroupSet(ctx, "mb-native", "stays=turn"); err != nil {
+		t.Fatal(err)
+	}
+	// an intent without a classifier is refused
+	if err := c.GroupRuleAdd(ctx, "mb-native", "use=group/mb-fast", "intent=a quick question"); err == nil {
+		t.Fatal("magpie took an intent rule with no classifier")
+	}
+	if err := c.GroupRuleAdd(ctx, "mb-native", "use=group/mb-fast", "classifier=fake/m1", "intent=Little work: a question, an explanation, reading logs"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.GroupRuleAdd(ctx, "mb-native", "use=group/mb-perf", "tokens=1"); err != nil {
+		t.Fatal(err)
+	}
+	g, err := c.Group(ctx, "mb-native")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.Rules != 2 || len(g.Members) != 2 || g.Members[0].Model != "group/mb-perf" {
+		t.Fatalf("read as %+v", g)
+	}
+	if err := c.GroupAdd(ctx, "mb-native", members); err != nil {
+		t.Fatal(err)
+	}
+	if g, err = c.Group(ctx, "mb-native"); err != nil || g.Rules != 0 {
+		t.Fatalf("a group made again kept its rules: %+v %v", g, err)
+	}
+}
+
 // /v1/systemone exists on loopback without a key, and a decider magpie
 // lacks is a clear 4xx with magpie's own words, not a silent hang.
 func TestContractSystemOneUnknownDeciderIsClearError(t *testing.T) {

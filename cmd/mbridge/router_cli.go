@@ -72,11 +72,13 @@ var defaultCriteria = map[router.Tier]string{
 }
 
 // routerInit is `mbridge router init --preset <name> [--groups-only]
-// [--force]`: four routing groups, router.json, and (unless --groups-only)
-// the harness mappings of §4.5. Every file written is printed first.
+// [--force] [--native]`: four routing groups, router.json, and (unless
+// --groups-only) the harness mappings of §4.5; with --native also the groups
+// that route by magpie's own intent rules (SP12). Every file written is
+// printed first.
 func routerInit(args []string) error {
 	var presetID string
-	groupsOnly, force := false, false
+	groupsOnly, force, native := false, false, false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--preset":
@@ -89,6 +91,8 @@ func routerInit(args []string) error {
 			groupsOnly = true
 		case "--force":
 			force = true
+		case "--native":
+			native = true
 		default:
 			return fmt.Errorf("unknown flag %q", args[i])
 		}
@@ -207,6 +211,13 @@ func routerInit(args []string) error {
 			return err
 		}
 		fmt.Println(green.Render("✓"), "wrote", p)
+	}
+
+	// 2b) the groups that route by magpie's own rules (SP12), when asked
+	if native {
+		if err := routerInitNative(ctx, mc, have); err != nil {
+			return err
+		}
 	}
 
 	if groupsOnly {

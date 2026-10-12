@@ -20,20 +20,23 @@ import (
 // fakeMag is official magpie as mbridge's CLI sees it: its CLI (groups,
 // agents, usage, version) and its gateway's /v1 and /v1/models.
 type fakeMag struct {
-	mu        sync.Mutex
-	srv       *httptest.Server
-	calls     [][]string
-	groups    map[string][]string
-	groupsErr bool
-	order     []string
-	served    []string          // provider/model ids
-	unserved  map[string]string // provider/model → magpie's "not served" reason
-	contexts  map[string]int    // model or group id → context window
-	usageCSV  string
-	version   string
-	agentErr  string
-	agents    map[string]string
-	down      bool
+	mu         sync.Mutex
+	srv        *httptest.Server
+	calls      [][]string
+	groups     map[string][]string
+	stays      map[string]string     // group id → its stays setting (auto when unset)
+	rules      map[string][][]string // group id → each rule's k=v arguments, in order
+	classifier map[string]string     // group id → its rules' classifier
+	groupsErr  bool
+	order      []string
+	served     []string          // provider/model ids
+	unserved   map[string]string // provider/model → magpie's "not served" reason
+	contexts   map[string]int    // model or group id → context window
+	usageCSV   string
+	version    string
+	agentErr   string
+	agents     map[string]string
+	down       bool
 }
 
 // withFakeMagpie gives the test a fresh home and config dir and a fake
@@ -45,7 +48,7 @@ func withFakeMagpie(t *testing.T, served ...string) *fakeMag {
 	t.Setenv("USERPROFILE", home) // os.UserHomeDir on Windows
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("MBRIDGE_CONFIG_DIR", filepath.Join(home, ".config", "magpie-bridge"))
-	f := &fakeMag{groups: map[string][]string{}, unserved: map[string]string{}, served: served, contexts: map[string]int{}, agents: map[string]string{}, version: "magpie v0.1.1100"}
+	f := &fakeMag{groups: map[string][]string{}, stays: map[string]string{}, rules: map[string][][]string{}, classifier: map[string]string{}, unserved: map[string]string{}, served: served, contexts: map[string]int{}, agents: map[string]string{}, version: "magpie v0.1.1100"}
 	f.srv = httptest.NewServer(http.HandlerFunc(f.serveHTTP))
 	t.Cleanup(f.srv.Close)
 	old := newMagpie
@@ -107,8 +110,43 @@ func (f *fakeMag) run(_ context.Context, name string, args ...string) ([]byte, e
 		if _, ok := f.groups[id]; !ok {
 			f.order = append(f.order, id)
 		}
+		// a name in use is replaced, and the old group's stays, rules and
+		// classifier go with it (checked against magpie 0.1.1184, 10-12)
+		delete(f.stays, id)
+		delete(f.rules, id)
+		delete(f.classifier, id)
 		f.groups[id] = members
 		return []byte("✓ group " + id), nil
+	case len(args) >= 3 && args[0] == "group" && args[1] == "set":
+		if _, ok := f.groups[args[2]]; !ok {
+			return []byte(fmt.Sprintf("magpie: no group %q\n", args[2])), errors.New("exit status 1")
+		}
+		for _, kv := range args[3:] {
+			if k, v, ok := strings.Cut(kv, "="); ok && k == "stays" {
+				f.stays[args[2]] = v
+			}
+		}
+		return []byte("✓ saved " + args[2]), nil
+	case len(args) >= 4 && args[0] == "group" && args[1] == "rule" && args[2] == "add":
+		id := args[3]
+		if _, ok := f.groups[id]; !ok {
+			return []byte(fmt.Sprintf("magpie: no group %q\n", id)), errors.New("exit status 1")
+		}
+		hasIntent := false
+		for _, kv := range args[4:] {
+			k, v, _ := strings.Cut(kv, "=")
+			switch k {
+			case "classifier":
+				f.classifier[id] = v
+			case "intent":
+				hasIntent = true
+			}
+		}
+		if hasIntent && f.classifier[id] == "" {
+			return []byte("magpie: a rule with an intent needs the group's classifier, the model that tells which intent a message is: add classifier=<model>, best a small fast one\n"), errors.New("exit status 1")
+		}
+		f.rules[id] = append(f.rules[id], append([]string(nil), args[4:]...))
+		return []byte("✓ saved " + id), nil
 	case len(args) == 1 && args[0] == "groups" && f.groupsErr:
 		return []byte("magpie: cannot read groups"), errors.New("exit status 1")
 	case len(args) == 1 && args[0] == "groups":
@@ -123,7 +161,11 @@ func (f *fakeMag) run(_ context.Context, name string, args ...string) ([]byte, e
 			return []byte(fmt.Sprintf("magpie: no group %q (groups: %s)\n", args[1], strings.Join(f.order, ", "))), errors.New("exit status 1")
 		}
 		var b strings.Builder
-		fmt.Fprintf(&b, "  %s  group/%s\n  routing   order\n  stays     auto\n", args[1], args[1])
+		stays := f.stays[args[1]]
+		if stays == "" {
+			stays = "auto"
+		}
+		fmt.Fprintf(&b, "  %s  group/%s\n  routing   order\n  stays     %s\n", args[1], args[1], stays)
 		for i, m := range members {
 			lead := "            "
 			if i == 0 {
@@ -134,6 +176,16 @@ func (f *fakeMag) run(_ context.Context, name string, args ...string) ([]byte, e
 				note = "not served: " + why
 			}
 			fmt.Fprintf(&b, "%s%d %s  %s\n", lead, i+1, m, note)
+		}
+		for i, r := range f.rules[args[1]] {
+			lead := "            "
+			if i == 0 {
+				lead = "  rules     "
+			}
+			fmt.Fprintf(&b, "%s%d %s\n", lead, i+1, strings.Join(r, " "))
+		}
+		if c := f.classifier[args[1]]; c != "" {
+			fmt.Fprintf(&b, "  classifier %s  tells which intent a message is\n", c)
 		}
 		return []byte(b.String()), nil
 	case len(args) >= 2 && args[0] == "usage":
