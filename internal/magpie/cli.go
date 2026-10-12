@@ -27,9 +27,10 @@ func (c *Client) cli(ctx context.Context, args ...string) ([]byte, error) {
 }
 
 // GroupAdd makes (or replaces) the routing group id with members in
-// order: `magpie group add <id> models=… routing=order`.
-func (c *Client) GroupAdd(ctx context.Context, id string, members []string) error {
-	_, err := c.cli(ctx, "group", "add", id, "models="+strings.Join(members, ","), "routing=order")
+// order: `magpie group add <id> models=… routing=<routing>`. magpie takes
+// order, usage, pace, rotate, smart (the default).
+func (c *Client) GroupAdd(ctx context.Context, id string, members []string, routing string) error {
+	_, err := c.cli(ctx, "group", "add", id, "models="+strings.Join(members, ","), "routing="+routing)
 	return err
 }
 

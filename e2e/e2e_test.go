@@ -65,7 +65,7 @@ func setup(t *testing.T) *env {
 		{"mb-fast", []string{"fake/m-fast"}}, {"mb-balanced", []string{"fake/m-bal"}}, {"mb-perf", []string{"fake/m-perf"}},
 		{"mbridge", []string{"group/mb-balanced", "group/mb-perf", "group/mb-fast"}},
 	} {
-		if err := c.GroupAdd(ctx, g.id, g.members); err != nil {
+		if err := c.GroupAdd(ctx, g.id, g.members, "order"); err != nil {
 			t.Fatal(err)
 		}
 	}

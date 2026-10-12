@@ -44,6 +44,31 @@ func TestRouterInitCnWritesGroupsAndConfig(t *testing.T) {
 	if !f.called("group", "add", "mbridge", "models=group/mb-balanced,group/mb-perf,group/mb-fast", "routing=order") {
 		t.Fatalf("router group not made through magpie's CLI: %v", f.calls)
 	}
+	// routing strategy per tier: fast=usage (most allowance left first),
+	// balanced=pace (most week left per hour), perf=order (strongest
+	// first), mbridge=order (the router group that picks a tier).
+	wantRouting := map[string]string{
+		"mb-fast":     "usage",
+		"mb-balanced": "pace",
+		"mb-perf":     "order",
+		"mbridge":     "order",
+	}
+	for id, routing := range wantRouting {
+		found := false
+		for _, c := range f.calls {
+			if len(c) >= 4 && c[0] == "magpie" && c[1] == "group" && c[2] == "add" && c[3] == id {
+				for _, kv := range c[4:] {
+					if kv == "routing="+routing {
+						found = true
+						break
+					}
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("group %s: routing=%s not set in any group add call: %v", id, routing, f.calls)
+		}
+	}
 	if fast, _ := groupMembers(f, "mb-fast"); fast[0] != "deepseek/deepseek-flash" {
 		t.Fatalf("fast members: %v", fast)
 	}

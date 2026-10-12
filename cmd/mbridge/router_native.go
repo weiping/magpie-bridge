@@ -120,13 +120,17 @@ func routerInitNative(ctx context.Context, mc *magpie.Client, have map[string]bo
 	}
 
 	gp := magpie.GroupPrefix
+	// mb-native-balanced uses pace (matches mb-balanced's routing; the
+	// two groups share members). mb-native, the router group that
+	// picks a tier for a turn, uses order.
 	groups := []struct {
 		id      string
 		members []string
+		routing string
 		stays   string
 	}{
-		{nativeBalancedGroup, nb, ""},
-		{nativeGroup, []string{gp + perfG, gp + nativeBalancedGroup, gp + fastG}, "turn"},
+		{nativeBalancedGroup, nb, "pace", ""},
+		{nativeGroup, []string{gp + perfG, gp + nativeBalancedGroup, gp + fastG}, "order", "turn"},
 	}
 	added := map[string]bool{}
 	for _, g := range groups {
@@ -134,7 +138,7 @@ func routerInitNative(ctx context.Context, mc *magpie.Client, have map[string]bo
 			fmt.Println(muted.Render("  kept"), "group", g.id, muted.Render("(already in magpie; `magpie group rm "+g.id+"` and init again to make it anew)"))
 			continue
 		}
-		if err := mc.GroupAdd(ctx, g.id, g.members); err != nil {
+		if err := mc.GroupAdd(ctx, g.id, g.members, g.routing); err != nil {
 			return err
 		}
 		if g.stays != "" {

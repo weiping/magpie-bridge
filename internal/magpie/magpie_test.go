@@ -187,7 +187,7 @@ func TestGroupAddArgs(t *testing.T) {
 		got = append([]string{name}, args...)
 		return nil, nil
 	}
-	if err := c.GroupAdd(context.Background(), "mb-fast", []string{"a/x", "b/y"}); err != nil {
+	if err := c.GroupAdd(context.Background(), "mb-fast", []string{"a/x", "b/y"}, "order"); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Join(got, " ") != "magpie group add mb-fast models=a/x,b/y routing=order" {
@@ -219,7 +219,7 @@ func TestCLIErrorCarriesOutput(t *testing.T) {
 	c.Run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		return []byte("magpie: no such provider"), io.ErrUnexpectedEOF
 	}
-	err := c.GroupAdd(context.Background(), "mb-fast", []string{"x/y"})
+	err := c.GroupAdd(context.Background(), "mb-fast", []string{"x/y"}, "order")
 	if err == nil || !strings.Contains(err.Error(), "no such provider") || !strings.Contains(err.Error(), "group add") {
 		t.Fatalf("err = %v", err)
 	}

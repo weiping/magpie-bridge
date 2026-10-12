@@ -25,6 +25,7 @@ type fakeMag struct {
 	calls      [][]string
 	groups     map[string][]string
 	stays      map[string]string     // group id → its stays setting (auto when unset)
+	routing    map[string]string     // group id → its routing setting (order when unset)
 	rules      map[string][][]string // group id → each rule's k=v arguments, in order
 	classifier map[string]string     // group id → its rules' classifier
 	groupsErr  bool
@@ -48,7 +49,7 @@ func withFakeMagpie(t *testing.T, served ...string) *fakeMag {
 	t.Setenv("USERPROFILE", home) // os.UserHomeDir on Windows
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("MBRIDGE_CONFIG_DIR", filepath.Join(home, ".config", "magpie-bridge"))
-	f := &fakeMag{groups: map[string][]string{}, stays: map[string]string{}, rules: map[string][][]string{}, classifier: map[string]string{}, unserved: map[string]string{}, served: served, contexts: map[string]int{}, agents: map[string]string{}, version: "magpie v0.1.1100"}
+	f := &fakeMag{groups: map[string][]string{}, stays: map[string]string{}, routing: map[string]string{}, rules: map[string][][]string{}, classifier: map[string]string{}, unserved: map[string]string{}, served: served, contexts: map[string]int{}, agents: map[string]string{}, version: "magpie v0.1.1100"}
 	f.srv = httptest.NewServer(http.HandlerFunc(f.serveHTTP))
 	t.Cleanup(f.srv.Close)
 	old := newMagpie
@@ -99,6 +100,15 @@ func (f *fakeMag) run(_ context.Context, name string, args ...string) ([]byte, e
 	case len(args) >= 4 && args[0] == "group" && args[1] == "add":
 		id := args[2]
 		members := strings.Split(strings.TrimPrefix(args[3], "models="), ",")
+		var routing string
+		for _, kv := range args[4:] {
+			if k, v, ok := strings.Cut(kv, "="); ok && k == "routing" {
+				routing = v
+			}
+		}
+		if routing == "" {
+			routing = "order"
+		}
 		// magpie 74b30cb refuses a member it does not know, whole group and all:
 		// `magpie: magpie knows no model "glm/glm-5.3-flash" (magpie models lists them)`
 		for _, m := range members {
@@ -113,9 +123,11 @@ func (f *fakeMag) run(_ context.Context, name string, args ...string) ([]byte, e
 		// a name in use is replaced, and the old group's stays, rules and
 		// classifier go with it (checked against magpie 0.1.1184, 10-12)
 		delete(f.stays, id)
+		delete(f.routing, id)
 		delete(f.rules, id)
 		delete(f.classifier, id)
 		f.groups[id] = members
+		f.routing[id] = routing
 		return []byte("✓ group " + id), nil
 	case len(args) >= 3 && args[0] == "group" && args[1] == "set":
 		if _, ok := f.groups[args[2]]; !ok {
@@ -152,7 +164,11 @@ func (f *fakeMag) run(_ context.Context, name string, args ...string) ([]byte, e
 	case len(args) == 1 && args[0] == "groups":
 		var b strings.Builder
 		for _, id := range f.order {
-			fmt.Fprintf(&b, "  %s  group/%s  order  %s\n", id, id, strings.Join(f.groups[id], ", "))
+			r := f.routing[id]
+			if r == "" {
+				r = "order"
+			}
+			fmt.Fprintf(&b, "  %s  group/%s  %s  %s\n", id, id, r, strings.Join(f.groups[id], ", "))
 		}
 		return []byte(b.String()), nil
 	case len(args) == 2 && args[0] == "group":
@@ -165,7 +181,11 @@ func (f *fakeMag) run(_ context.Context, name string, args ...string) ([]byte, e
 		if stays == "" {
 			stays = "auto"
 		}
-		fmt.Fprintf(&b, "  %s  group/%s\n  routing   order\n  stays     %s\n", args[1], args[1], stays)
+		routing := f.routing[args[1]]
+		if routing == "" {
+			routing = "order"
+		}
+		fmt.Fprintf(&b, "  %s  group/%s\n  routing   %s\n  stays     %s\n", args[1], args[1], routing, stays)
 		for i, m := range members {
 			lead := "            "
 			if i == 0 {

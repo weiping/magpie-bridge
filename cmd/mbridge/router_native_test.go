@@ -99,6 +99,24 @@ func TestRouterInitNativeBuildsTheGroups(t *testing.T) {
 
 	out := initNative(t)
 
+	// mb-native-balanced uses routing=pace (matches mb-balanced);
+	// mb-native, the router group, uses routing=order.
+	checkRouting := func(id, want string) {
+		t.Helper()
+		for _, c := range f.calls {
+			if len(c) >= 4 && c[0] == "magpie" && c[1] == "group" && c[2] == "add" && c[3] == id {
+				for _, kv := range c[4:] {
+					if kv == "routing="+want {
+						return
+					}
+				}
+			}
+		}
+		t.Fatalf("group %s: routing=%s not set: %v", id, want, f.calls)
+	}
+	checkRouting("mb-native-balanced", "pace")
+	checkRouting("mb-native", "order")
+
 	// balanced's copy tells the member it shares with perf apart
 	nb, _ := groupMembers(f, "mb-native-balanced")
 	if got := strings.Join(nb, ","); got != "deepseek/deepseek-v4-pro,moonshot-cn/kimi-k2.7-code,moonshot-cn/kimi-k3:medium" {

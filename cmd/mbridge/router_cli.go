@@ -130,15 +130,21 @@ func routerInit(args []string) error {
 	}
 	fillEmptyTiers(resolved, have)
 
-	// 1) the four routing groups (§4.4), made by magpie's own CLI
+	// 1) the four routing groups (§4.4), made by magpie's own CLI.
+	// routing per tier: fast uses usage (the model with the most of its
+	// allowance left), balanced uses pace (the most week left per hour
+	// until it renews), perf uses order (the first member until it
+	// can't answer; init puts the strongest first). mbridge, the
+	// router group that picks a tier for a turn, also uses order.
 	groups := []struct {
 		id      string
 		members []string
+		routing string
 	}{
-		{"mb-fast", resolved[router.TierFast]},
-		{"mb-balanced", resolved[router.TierBalanced]},
-		{"mb-perf", resolved[router.TierPerformance]},
-		{"mbridge", []string{"group/mb-balanced", "group/mb-perf", "group/mb-fast"}},
+		{"mb-fast", resolved[router.TierFast], "usage"},
+		{"mb-balanced", resolved[router.TierBalanced], "pace"},
+		{"mb-perf", resolved[router.TierPerformance], "order"},
+		{"mbridge", []string{"group/mb-balanced", "group/mb-perf", "group/mb-fast"}, "order"},
 	}
 	for _, g := range groups {
 		if !have[g.id] && len(g.members) == 0 {
@@ -153,7 +159,7 @@ func routerInit(args []string) error {
 			}
 			continue
 		}
-		if err := mc.GroupAdd(ctx, g.id, g.members); err != nil {
+		if err := mc.GroupAdd(ctx, g.id, g.members, g.routing); err != nil {
 			return err
 		}
 		fmt.Println(green.Render("✓"), "group", g.id, "→", strings.Join(g.members, ", "))

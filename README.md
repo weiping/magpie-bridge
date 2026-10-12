@@ -108,9 +108,10 @@ mbridge 的路由配置有两处：magpie 里的四个路由组（存在 magpie 
 
 | 组 | 用途 | 路由策略 |
 | --- | --- | --- |
-| `mb-fast` / `mb-balanced` / `mb-perf` | 三个档位组，各自是「主成员 + 失败转移成员」的列表 | `order` |
-| `mbridge` | 路由组：Codex 和网关模式的请求带着 `group/mbridge` 进 mbridge，代理按轮改写成某一档；绕过 mbridge 直接请求它时，magpie 按顺序落到 balanced | `order` |
-| `mb-native` / `mb-native-balanced` | `router init --native` 才建，和 mbridge 的路由互不相干，见[下一节](#只用-magpie-原生规则选档mb-native) | `order` |
+| `mb-fast` | 快速档候选组 | `usage`（优先使用剩余额度最多的账号/Key） |
+| `mb-balanced` / `mb-native-balanced` | 均衡档候选组 | `pace`（按额度周窗口的恢复节奏分配） |
+| `mb-perf` | 高性能候选组，成员按能力从强到弱排列 | `order`（依次尝试，强模型在前） |
+| `mbridge` / `mb-native` | 档位路由组；`mbridge` 由 mbridge 按轮改写档位，`mb-native` 由 magpie 原生规则选档 | `order` |
 
 #### 换档位组里的模型
 
@@ -118,15 +119,17 @@ mbridge 的路由配置有两处：magpie 里的四个路由组（存在 magpie 
 
 ```sh
 magpie models                         # 先查可用的模型名（provider/model）
-magpie group mb-fast                  # 看一个组现在的成员
-magpie group set mb-fast models=deepseek/deepseek-flash:high,zhipu/glm-5.3-flash:high
-magpie group set mb-perf models+=anthropic/claude-opus-5-5:high   # 在末尾追加一个
-magpie group set mb-perf models-=zhipu/glm-5.3:max                # 去掉一个
-magpie groups                         # 确认三档都对
+magpie group mb-fast                  # 看一个组现在的成员和 routing
+magpie group set mb-fast models=cursor/composer-2.5,zhipu/glm-5.3-flash:high routing=usage
+magpie group set mb-balanced models=glm/glm-5.3:high,minimax-cn/MiniMax-M3 routing=pace
+magpie group set mb-perf models=anthropic/claude-opus-5-5:high,deepseek/deepseek-v4-pro:max routing=order
+magpie group set mb-perf models+=anthropic/claude-opus-5-5:high routing=order   # 追加成员时显式保留策略
+magpie group set mb-perf models-=zhipu/glm-5.3:max routing=order                # 移除成员时也显式保留策略
+magpie groups                         # 确认成员顺序和策略
 mbridge router check                  # 检查分组是否齐全、上下文窗口够不够
 ```
 
-- `models=` 会用给出的列表整个替换原来的成员。列表有顺序：第一个是主模型，后面的依次是失败转移。
+- `models=` 会用给出的列表整个替换原来的成员。列表有顺序：第一个是主模型，后面的依次是失败转移。手工重设/替换档位组时也显式带上对应的 `routing=`：`mb-fast=usage`、`mb-balanced=pace`、`mb-perf=order`；性能组成员要按能力从强到弱排列。
 - 成员可以带 `:low`、`:medium`、`:high` 这类后缀，指定推理强度。
 - magpie 不认识的模型名会被拒绝（提示用 `magpie models` 查）。
 - `mbridge` 这个路由组的成员就是三个档位组（`group/mb-balanced`、`group/mb-perf`、`group/mb-fast`），不要改成具体模型。
@@ -286,7 +289,7 @@ magpie group mb-native                                   # 看成员、规则和
 
 | 组 | 成员 |
 | --- | --- |
-| `mb-native-balanced` | `mb-balanced` 当前的成员；与 `mb-perf` 共有的，带上 `:medium` 之类的后缀（原因见下一节） |
+| `mb-native-balanced` | `mb-balanced` 当前的成员，使用 `routing=pace`；与 `mb-perf` 共有的，带上 `:medium` 之类的后缀（原因见下一节） |
 | `mb-native` | `group/mb-perf`、`group/mb-native-balanced`、`group/mb-fast`，`routing=order`、`stays=turn` |
 
 `mb-native` 上有四条规则：fast、balanced、performance 三条按意图选，意图文本取 `router.json` 里各档的 `criteria`；第四条没有意图（`tokens=1`），分类失败或没有意图命中时落到 `default_tier` 那一档。
@@ -300,7 +303,7 @@ magpie group mb-native                                   # 看成员、规则和
 不想用 init 时，等价的手动命令（成员换成你自己 `mb-balanced` 里的模型）：
 
 ```sh
-magpie group add mb-native-balanced models=zhipu/glm-5.3,deepseek/deepseek-v4-pro:medium,kimi-code-cn/k3:medium,… routing=order
+magpie group add mb-native-balanced models=zhipu/glm-5.3,deepseek/deepseek-v4-pro:medium,kimi-code-cn/k3:medium,… routing=pace
 magpie group add mb-native models=group/mb-perf,group/mb-native-balanced,group/mb-fast routing=order stays=turn
 magpie group rule add mb-native use=group/mb-fast classifier=typesafe/jev-latest intent="<fast 的 criteria>"
 magpie group rule add mb-native use=group/mb-native-balanced intent="<balanced 的 criteria>"

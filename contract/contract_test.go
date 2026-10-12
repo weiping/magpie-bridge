@@ -80,7 +80,7 @@ func usageWhen(t *testing.T, m *testmagpie.Magpie, c *magpie.Client, want func([
 func TestContractGroupAddThenList(t *testing.T) {
 	_, c := start(t)
 	ctx := context.Background()
-	if err := c.GroupAdd(ctx, "mb-fast", []string{"fake/m1"}); err != nil {
+	if err := c.GroupAdd(ctx, "mb-fast", []string{"fake/m1"}, "order"); err != nil {
 		t.Fatal(err)
 	}
 	ids, err := c.Groups(ctx)
@@ -96,7 +96,7 @@ func TestContractGroupAddThenList(t *testing.T) {
 func TestContractModelsListsGroups(t *testing.T) {
 	m, c := start(t)
 	ctx := context.Background()
-	if err := c.GroupAdd(ctx, "mb-perf", []string{"fake/m2"}); err != nil {
+	if err := c.GroupAdd(ctx, "mb-perf", []string{"fake/m2"}, "order"); err != nil {
 		t.Fatal(err)
 	}
 	m.WaitListed(t, "group/mb-perf", true)
@@ -115,7 +115,7 @@ func TestContractModelsListsGroups(t *testing.T) {
 func TestContractGroupShowsUnservedMembers(t *testing.T) {
 	m, c := start(t)
 	ctx := context.Background()
-	if err := c.GroupAdd(ctx, "mb-perf", []string{"fake/m2"}); err != nil {
+	if err := c.GroupAdd(ctx, "mb-perf", []string{"fake/m2"}, "order"); err != nil {
 		t.Fatal(err)
 	}
 	m.WaitListed(t, "group/mb-perf", true) // so that the wait below sees it go
@@ -150,12 +150,12 @@ func TestContractGroupRulesAreAddedCountedAndReplaced(t *testing.T) {
 	_, c := start(t)
 	ctx := context.Background()
 	for id, m := range map[string]string{"mb-fast": "fake/m1", "mb-perf": "fake/m2"} {
-		if err := c.GroupAdd(ctx, id, []string{m}); err != nil {
+		if err := c.GroupAdd(ctx, id, []string{m}, "order"); err != nil {
 			t.Fatal(err)
 		}
 	}
 	members := []string{"group/mb-perf", "group/mb-fast"}
-	if err := c.GroupAdd(ctx, "mb-native", members); err != nil {
+	if err := c.GroupAdd(ctx, "mb-native", members, "order"); err != nil {
 		t.Fatal(err)
 	}
 	if err := c.GroupSet(ctx, "mb-native", "stays=turn"); err != nil {
@@ -178,7 +178,7 @@ func TestContractGroupRulesAreAddedCountedAndReplaced(t *testing.T) {
 	if g.Rules != 2 || len(g.Members) != 2 || g.Members[0].Model != "group/mb-perf" {
 		t.Fatalf("read as %+v", g)
 	}
-	if err := c.GroupAdd(ctx, "mb-native", members); err != nil {
+	if err := c.GroupAdd(ctx, "mb-native", members, "order"); err != nil {
 		t.Fatal(err)
 	}
 	if g, err = c.Group(ctx, "mb-native"); err != nil || g.Rules != 0 {
@@ -202,7 +202,7 @@ func TestContractSystemOneUnknownDeciderIsClearError(t *testing.T) {
 func TestContractSessionHeaderReachesUsage(t *testing.T) {
 	m, c := start(t)
 	ctx := context.Background()
-	if err := c.GroupAdd(ctx, "mb-fast", []string{"fake/m1"}); err != nil {
+	if err := c.GroupAdd(ctx, "mb-fast", []string{"fake/m1"}, "order"); err != nil {
 		t.Fatal(err)
 	}
 	m.WaitListed(t, "group/mb-fast", true)
