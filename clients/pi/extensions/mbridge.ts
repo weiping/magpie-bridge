@@ -8,9 +8,27 @@ import { idsFrom } from "../src/session.js"
  * before_agent_start asks the gateway which tier this prompt deserves and
  * switches Pi's model when the tier moved; every failure keeps the model
  * as-is, so the worst outcome is "the default tier served this turn".
+ *
+ * SP13: all of it happens only on a turn whose model is group/mbridge. Pi
+ * has merged its settings (project over user, --model, /model) by then, so
+ * the extension reads ctx.model and nothing else.
  */
 
 const PROVIDER = "magpie"
+const ROUTING_GROUP = "group/mbridge"
+
+type ModelLite = { provider?: string; id?: string } | undefined
+
+// "group/mbridge[1m]" is the routing group too (magpie's name for a 1M window)
+const stripSuffix = (id: string): string => id.replace(/\[[^\]]*\]$/, "")
+
+// modelKey names a model the way lastAutoModel remembers it
+const modelKey = (m: ModelLite): string => (m?.id === undefined ? "" : `${m.provider ?? ""}/${m.id}`)
+
+// isRoutingModel: the model is magpie's routing group, not one of its tier
+// groups, which only we or the user choose.
+const isRoutingModel = (m: ModelLite): boolean =>
+  m?.provider === PROVIDER && typeof m.id === "string" && stripSuffix(m.id) === ROUTING_GROUP
 const PR_LINK = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/
 const SUBAGENT_TOOLS = new Set(["subagent", "dispatch_agent"]) // S12
 
@@ -66,8 +84,10 @@ export default function (pi: ExtensionAPI): void {
   let lastTier: string | null = null
   let lastPrompt = "" // this turn's words, for the end-of-turn review (SP7)
   let lastAnswer: string | null = null // the previous final answer, for the next /turn (SP11)
-  let lastAutoModel = "" // our own setModel, told apart from a manual switch
-  let manualPinned = false
+  let lastAutoModel = "" // our own setModel as "provider/id", told apart from a manual switch
+  // SP13: whether the current turn is on group/mbridge; the first turn of a
+  // session decides it from ctx.model, and our own setModel keeps it on
+  let routed = false
   // SP8: the main session's tool results since the last /turn; mbridge no
   // longer sees Pi's requests, so Pi reports them (R3's tool rule)
   let tools: { calls: number; failures: number } | null = null
@@ -91,7 +111,7 @@ export default function (pi: ExtensionAPI): void {
     lastPrompt = ""
     lastAnswer = null
     lastAutoModel = ""
-    manualPinned = false
+    routed = false
     tools = null
   })
 
@@ -102,7 +122,15 @@ export default function (pi: ExtensionAPI): void {
 
   pi.on("before_agent_start", async (event, ctx: ExtensionContext) => {
     const prompt = event.prompt ?? ""
-    if (prompt === "" || session === "" || manualPinned) return
+    if (prompt === "" || session === "") return
+    // SP13: this turn is routed when Pi's model is the routing group, or the
+    // tier group an earlier routed turn of ours switched to
+    const model = (ctx as { model?: ModelLite }).model
+    routed = isRoutingModel(model) || (lastAutoModel !== "" && modelKey(model) === lastAutoModel)
+    if (!routed) {
+      lastTier = null
+      return
+    }
     lastPrompt = prompt
     const out = await learnedThenTurn({
       session,
@@ -125,11 +153,11 @@ export default function (pi: ExtensionAPI): void {
     if (downShown) status?.("mbridge", undefined)
     downShown = false
     if (out.tier === lastTier) return
-    const model = ctx.modelRegistry.find(PROVIDER, out.group)
-    if (model === undefined) return // tier group unknown to Pi: keep the model
-    lastAutoModel = model.id
+    const target = ctx.modelRegistry.find(PROVIDER, out.group)
+    if (target === undefined) return // tier group unknown to Pi: keep the model
+    lastAutoModel = modelKey(target)
     lastTier = out.tier
-    await pi.setModel(model)
+    await pi.setModel(target)
   })
 
   // SP7 §3.5: after a routed main turn that did not run on performance,
@@ -139,16 +167,23 @@ export default function (pi: ExtensionAPI): void {
     const answer = lastAssistantText((event as { messages?: AgentMessageLite[] }).messages ?? [])
     // SP11: for the next /turn, whatever tier this turn was; none if it ended without one
     lastAnswer = finalAnswer((event as { messages?: AgentMessageLite[] }).messages ?? [])
-    if (manualPinned || session === "" || lastTier === null || lastTier === "performance") return
+    if (!routed || session === "" || lastTier === null || lastTier === "performance") return
     if (answer === null) return
     client.review({ session, prompt: lastPrompt, answer })
   })
 
   pi.on("model_select", (event) => {
-    const e = event as { source: string; model: { id: string }; previousModel?: { id: string } }
+    const e = event as { source: string; model: ModelLite & { id: string }; previousModel?: ModelLite }
     if (e.source === "restore") return // a resumed session reloading its model
-    if (e.model?.id === lastAutoModel) return // our own switch
-    manualPinned = true
+    if (lastAutoModel !== "" && modelKey(e.model) === lastAutoModel) return // our own switch
+    // SP13: leaving a routed turn's model is a manual switch, reported once;
+    // the next turn reads its own mode from ctx.model. A session that never
+    // routed chose its model in a settings file: nothing to report.
+    const wasRouted = routed
+    routed = false
+    lastAutoModel = ""
+    lastTier = null
+    if (!wasRouted) return
     void client.feedback({
       session,
       kind: "manual_model_switch",
@@ -158,6 +193,7 @@ export default function (pi: ExtensionAPI): void {
 
   pi.on("tool_result", (event) => {
     const e = event as { isError?: boolean; content?: Array<{ type?: string; text?: string }> }
+    if (!routed) return // SP13
     if (tools !== null) {
       tools.calls++
       if (e.isError === true) tools.failures++
@@ -178,7 +214,7 @@ export default function (pi: ExtensionAPI): void {
     if (!SUBAGENT_TOOLS.has(e.toolName)) return
     if (typeof e.input.model === "string") return // already chosen
     if (e.input.context === "fork") return // inherits the parent's context: gateway mode (S12)
-    if (manualPinned || session === "") return
+    if (!routed || session === "") return // SP13
     const task = [e.input.task, e.input.prompt, e.input.description].find(
       (v): v is string => typeof v === "string" && v !== "",
     )

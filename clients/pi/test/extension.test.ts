@@ -10,21 +10,28 @@ function fakePi() {
   const state = {
     sessionId: "s-pi-1" as string | undefined,
     header: {} as Record<string, unknown>,
-    models: { "magpie/group/mb-fast": { id: "magpie/group/mb-fast" }, "magpie/group/mb-balanced": { id: "magpie/group/mb-balanced" } } as Record<string, { id: string }>,
+    models: {
+      "magpie/group/mb-fast": { provider: "magpie", id: "group/mb-fast" },
+      "magpie/group/mb-balanced": { provider: "magpie", id: "group/mb-balanced" },
+    } as Record<string, { provider: string; id: string }>,
     setModelCalls: [] as string[],
     setModelOk: true,
+    model: { provider: "magpie", id: "group/mbridge" } as { provider: string; id: string } | undefined,
   }
   const pi = {
     on: vi.fn((name: string, handler: Handler) => {
       handlers.set(name, handler)
       return () => handlers.delete(name)
     }),
-    setModel: vi.fn(async (model: { id: string }) => {
-      state.setModelCalls.push(model.id)
+    setModel: vi.fn(async (model: { provider: string; id: string }) => {
+      state.setModelCalls.push(`${model.provider}/${model.id}`)
       return state.setModelOk
     }),
   }
   const ctx = {
+    get model() {
+      return state.model
+    },
     sessionManager: {
       getSessionId: () => state.sessionId,
       getHeader: () => state.header,
@@ -321,14 +328,15 @@ describe("mbridge extension", () => {
     expect(f.state.setModelCalls).toEqual(["magpie/group/mb-fast"])
 
     // our own switch (model_select mirroring lastAutoModel): no feedback
-    f.fire("model_select", { type: "model_select", source: "set", model: { id: "magpie/group/mb-fast" }, previousModel: undefined })
+    f.fire("model_select", { type: "model_select", source: "set", model: { provider: "magpie", id: "group/mb-fast" }, previousModel: undefined })
     expect(bodies(fetchMock, "/v1/bridge/feedback").length).toBe(0)
 
     // the user switches by hand: feedback once, auto-switch off
-    f.fire("model_select", { type: "model_select", source: "set", model: { id: "other/m1" }, previousModel: { id: "magpie/group/mb-fast" } })
+    f.fire("model_select", { type: "model_select", source: "set", model: { provider: "other", id: "m1" }, previousModel: { provider: "magpie", id: "group/mb-fast" } })
     expect(bodies(fetchMock, "/v1/bridge/feedback")).toMatchObject([
-      { session: "s-pi-1", kind: "manual_model_switch", value: "magpie/group/mb-fast→other/m1" },
+      { session: "s-pi-1", kind: "manual_model_switch", value: "group/mb-fast→m1" },
     ])
+    f.state.model = { provider: "other", id: "m1" } // Pi's model is the user's now
     await f.fire("before_agent_start", { type: "before_agent_start", prompt: "two would switch tiers" })
     expect(f.state.setModelCalls).toEqual(["magpie/group/mb-fast"]) // pinned now
 
@@ -347,10 +355,16 @@ describe("mbridge extension: feedback and subagents", () => {
   })
   afterEach(() => vi.unstubAllGlobals())
 
+  // SP13: PR links and subagent picks happen on a routed turn, so boot runs
+  // one on the routing group (its /turn is answered, then the mock is reset)
   async function boot() {
     const f = fakePi()
     ;(await import("../extensions/mbridge.js")).default(f.pi as never)
     f.fire("session_start", { type: "session_start", reason: "startup" })
+    gw(fetchMock, [{ tier: "fast", group: "group/mb-fast" }])
+    await f.fire("before_agent_start", { type: "before_agent_start", prompt: "boot turn" })
+    fetchMock.mockClear()
+    f.state.setModelCalls.length = 0
     return f
   }
 
@@ -482,5 +496,159 @@ describe("mbridge extension (SP8)", () => {
     gw(fetchMock, [{ tier: "fast", group: "group/mb-fast" }])
     await f.fire("before_agent_start", { type: "before_agent_start", prompt: "two" })
     expect(statuses[statuses.length - 1]).toEqual(["mbridge", undefined])
+  })
+})
+
+// ---- SP13: only a turn on group/mbridge is routed ----
+
+// Pi names a model { provider, id }: magpie's routing group is
+// { provider: "magpie", id: "group/mbridge" }, and the tier groups the
+// extension switches to are { provider: "magpie", id: "group/mb-fast" } and so on.
+const onModel = (id: string, provider = "magpie") => ({ provider, id })
+
+describe("mbridge extension (SP13)", () => {
+  let fetchMock: ReturnType<typeof vi.fn>
+  beforeEach(() => {
+    fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    vi.stubEnv("MBRIDGE_URL", "http://gw")
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
+  })
+
+  async function boot(model: { provider: string; id: string } | undefined, turns = [{ tier: "fast", group: "group/mb-fast" }]) {
+    const f = fakePi()
+    ;f.state.model = model
+    gw(fetchMock, turns)
+    ;(await import("../extensions/mbridge.js")).default(f.pi as never)
+    f.fire("session_start", { type: "session_start", reason: "startup" })
+    return f
+  }
+  const turn = (f: ReturnType<typeof fakePi>, prompt: string) =>
+    f.fire("before_agent_start", { type: "before_agent_start", prompt })
+  const asked = () => bodies(fetchMock, "/v1/bridge/turn").length
+
+  it("on group/mbridge a turn is routed", async () => {
+    const f = await boot(onModel("group/mbridge"))
+    await turn(f, "what license?")
+    expect(asked()).toBe(1)
+    expect(f.state.setModelCalls).toEqual(["magpie/group/mb-fast"])
+  })
+
+  it("a [1m] suffix still counts as group/mbridge", async () => {
+    const f = await boot(onModel("group/mbridge[1m]"))
+    await turn(f, "what license?")
+    expect(asked()).toBe(1)
+  })
+
+  it("on any other model nothing is asked, switched or shown", async () => {
+    for (const m of [onModel("group/auto-claude-sonnet-5-5"), onModel("group/mb-perf"), onModel("gpt-6-sol", "openai"), onModel("group/mbridge", "other"), undefined]) {
+      fetchMock.mockReset()
+      const f = await boot(m)
+      const statuses: Array<[string, string | undefined]> = []
+      ;(f.ctx as any).ui = { setStatus: (k: string, t: string | undefined) => statuses.push([k, t]) }
+      await turn(f, "rename a variable")
+      expect(asked()).toBe(0)
+      expect(f.state.setModelCalls).toEqual([])
+      expect(statuses).toEqual([])
+    }
+  })
+
+  // After the first routed turn Pi's model is a tier group we set ourselves.
+  // That is still the routing group's turn, not a user's choice of mb-fast.
+  it("our own setModel keeps later turns routed", async () => {
+    const f = await boot(onModel("group/mbridge"), [
+      { tier: "fast", group: "group/mb-fast" },
+      { tier: "balanced", group: "group/mb-balanced" },
+    ])
+    await turn(f, "one")
+    f.fire("model_select", { type: "model_select", source: "set", model: onModel("group/mb-fast"), previousModel: onModel("group/mbridge") })
+    ;f.state.model = onModel("group/mb-fast") // Pi's model now
+    await turn(f, "two, more work")
+    expect(asked()).toBe(2)
+    expect(f.state.setModelCalls).toEqual(["magpie/group/mb-fast", "magpie/group/mb-balanced"])
+    expect(bodies(fetchMock, "/v1/bridge/feedback").length).toBe(0)
+  })
+
+  it("picking a tier group by hand turns routing off, and says so once", async () => {
+    const f = await boot(onModel("group/mbridge"))
+    await turn(f, "one")
+    f.fire("model_select", { type: "model_select", source: "set", model: onModel("group/mb-fast"), previousModel: onModel("group/mbridge") })
+    ;f.state.model = onModel("group/mb-fast")
+    // the user, not us, picks mb-perf
+    f.fire("model_select", { type: "model_select", source: "user", model: onModel("group/mb-perf"), previousModel: onModel("group/mb-fast") })
+    ;f.state.model = onModel("group/mb-perf")
+    f.fire("model_select", { type: "model_select", source: "user", model: onModel("gpt-6-sol", "openai"), previousModel: onModel("group/mb-perf") })
+    ;f.state.model = onModel("gpt-6-sol", "openai")
+    await turn(f, "two")
+    await turn(f, "three")
+    expect(asked()).toBe(1)
+    expect(bodies(fetchMock, "/v1/bridge/feedback")).toMatchObject([
+      { session: "s-pi-1", kind: "manual_model_switch" },
+    ])
+  })
+
+  it("a manual switch back to group/mbridge routes again", async () => {
+    const f = await boot(onModel("group/mbridge"), [
+      { tier: "fast", group: "group/mb-fast" },
+      { tier: "balanced", group: "group/mb-balanced" },
+    ])
+    await turn(f, "one")
+    f.fire("model_select", { type: "model_select", source: "user", model: onModel("gpt-6-sol", "openai"), previousModel: onModel("group/mb-fast") })
+    ;f.state.model = onModel("gpt-6-sol", "openai")
+    await turn(f, "two")
+    expect(asked()).toBe(1)
+    f.fire("model_select", { type: "model_select", source: "user", model: onModel("group/mbridge"), previousModel: onModel("gpt-6-sol", "openai") })
+    ;f.state.model = onModel("group/mbridge")
+    await turn(f, "three")
+    expect(asked()).toBe(2)
+    expect(f.state.setModelCalls).toEqual(["magpie/group/mb-fast", "magpie/group/mb-balanced"])
+  })
+
+  it("a session that starts on another model reports no manual switch", async () => {
+    const f = await boot(onModel("group/auto-claude-sonnet-5-5"))
+    f.fire("model_select", { type: "model_select", source: "restore", model: onModel("group/auto-claude-sonnet-5-5"), previousModel: undefined })
+    f.fire("model_select", { type: "model_select", source: "user", model: onModel("group/mb-perf"), previousModel: onModel("group/auto-claude-sonnet-5-5") })
+    ;f.state.model = onModel("group/mb-perf")
+    await turn(f, "one")
+    expect(bodies(fetchMock, "/v1/bridge/feedback").length).toBe(0)
+  })
+
+  it("on another model: no tool stats, PR link, review or subagent pick", async () => {
+    const f = await boot(onModel("group/auto-claude-sonnet-5-5"))
+    await turn(f, "one")
+    f.fire("tool_result", { toolName: "bash", isError: false, content: [{ type: "text", text: "Opened https://github.com/weiping/magpie-bridge/pull/7" }] })
+    await f.fire("agent_end", { type: "agent_end", messages: [{ role: "assistant", content: [{ type: "text", text: "done" }] }] })
+    const input: Record<string, unknown> = { context: "fresh", task: "search the repo" }
+    await f.fire("tool_call", { type: "tool_call", toolName: "subagent", input })
+    await new Promise((r) => setTimeout(r, 10))
+    expect(asked()).toBe(0)
+    expect(bodies(fetchMock, "/v1/bridge/feedback").length).toBe(0)
+    expect(bodies(fetchMock, "/v1/bridge/review").length).toBe(0)
+    expect(input).not.toHaveProperty("model")
+  })
+
+  it("on group/mbridge a PR link, a review and a subagent pick still go out", async () => {
+    const f = await boot(onModel("group/mbridge"), [{ tier: "fast", group: "group/mb-fast" }])
+    await turn(f, "one")
+    f.fire("tool_result", { toolName: "bash", isError: false, content: [{ type: "text", text: "Opened https://github.com/weiping/magpie-bridge/pull/7" }] })
+    await f.fire("agent_end", { type: "agent_end", messages: [{ role: "assistant", content: [{ type: "text", text: "done" }] }] })
+    const input: Record<string, unknown> = { context: "fresh", task: "search the repo" }
+    await f.fire("tool_call", { type: "tool_call", toolName: "subagent", input })
+    await vi.waitFor(() => expect(bodies(fetchMock, "/v1/bridge/review").length).toBe(1))
+    expect(bodies(fetchMock, "/v1/bridge/feedback")).toMatchObject([{ kind: "pr_created" }])
+    expect(input.model).toBe("magpie/group/mb-fast")
+  })
+
+  it("the previous answer is still kept on another model, for a later routed turn", async () => {
+    const f = await boot(onModel("group/auto-claude-sonnet-5-5"), [{ tier: "fast", group: "group/mb-fast" }])
+    await turn(f, "CI?")
+    await f.fire("agent_end", { type: "agent_end", messages: [{ role: "assistant", content: [{ type: "text", text: "propose three workflows" }] }] })
+    f.fire("model_select", { type: "model_select", source: "user", model: onModel("group/mbridge"), previousModel: onModel("group/auto-claude-sonnet-5-5") })
+    ;f.state.model = onModel("group/mbridge")
+    await turn(f, "do it")
+    expect(bodies(fetchMock, "/v1/bridge/turn")[0].previous_answer).toBe("propose three workflows")
   })
 })
