@@ -45,6 +45,7 @@
 - `agent.spawn`：主会话本轮 mode 不是开启（关闭，或还没有任何主轮次）则原样放行。子代理的模型由客户端的 `ANTHROPIC_DEFAULT_*_MODEL` 别名决定，插件不碰。开启时行为不变。
 - 子代理的 `turn.step` 本来就只改写 `group/mbridge`，不变。
 - `tool.call` 的工具统计和 PR 链接、`turn.complete` 的复盘：只在本轮 mode 开启时统计和上报。`lastAnswer`（SP11）照旧每轮都记，它只是本地状态。
+- `classic.PostModelSwitch`（用户用 `/model` 或选择器切模型）：只在 `from_model`（去后缀）是 `group/mbridge`、也就是**从 mbridge 切走**时报 `manual_model_switch`。从别的模型切到别的、或从别的切回 mbridge，都不报。
 - `$.state` 多一项 `mode: 'on' | 'off' | null`（`null`：还没有主轮次），同步更新 `types/index.d.ts`。
 - 插件版本 0.2.3 → 0.3.0。
 

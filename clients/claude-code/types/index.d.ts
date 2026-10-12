@@ -27,6 +27,12 @@ declare module 'claude-code' {
       turnBudget: number | null
       /** The main session's last final answer (SP11), sent as previous_answer. */
       lastAnswer: string | null
+      /** SP13: whether the main session's current turn is on group/mbridge;
+       *  null until a main turn.step has said. */
+      mode: 'on' | 'off' | null
+      /** SP13: turn.start's words and id, held until the first main turn.step
+       *  knows the model and asks (or does not ask) mbridge. */
+      pending: { turnId: string; text: string } | null
     }
   }
 }

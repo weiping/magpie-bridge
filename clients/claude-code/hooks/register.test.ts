@@ -1,5 +1,27 @@
 import { expect, mock, test } from 'claude-code/testing'
 
+async function runStep($: any, model: string, agentId?: string, turnId = 't1') {
+  const stream = $.turn.step({ turnId, index: 0, model, messageCount: 1, ...(agentId ? { agentId } : {}) })
+  let s = await stream.next()
+  while (s.done !== true) s = await stream.next()
+}
+
+function engineSeen(on: any) {
+  const seen: string[] = []
+  on('turn.step', async function* (_$: unknown, e: { turnId: string; index: number; model: string; agentId?: string }) {
+    seen.push((e.agentId ?? 'main') + ':' + e.model)
+    return { turnId: e.turnId, index: e.index, answer: 'ok', toolUses: [], stopReason: 'end_turn', usage: null }
+  })
+  return seen
+}
+
+// SP13: /turn is asked at a turn's first main step, so a test that wants a
+// routed turn starts it and takes that step on the routing group.
+async function startTurn($: any, turnId: string, text: string, model = 'group/mbridge') {
+  await $.turn.start({ turnId, text })
+  await runStep($, model, undefined, turnId)
+}
+
 // A fake gateway: every $.http.fetch lands here with its url and body.
 function fakeGateway(on: any, turns: Array<{ tier: string; group: string; reason: string }>) {
   const calls: Array<{ url: string; method?: string; body?: string }> = []
@@ -46,6 +68,9 @@ test('turn.start calls /turn with the right fields and turn.step rewrites the ro
 
   await $.classic.UserPromptSubmit({ prompt: 'what license is this repo?', permission_mode: 'default' })
   await $.turn.start({ turnId: 't1', text: 'what license is this repo?' })
+  expect(calls.length).toBe(0) // SP13: the model is not known yet
+  // main-loop step on the routing group asks /turn and rewrites to this turn's tier group
+  await runStep($, 'group/mbridge')
 
   expect(calls.length).toBe(1)
   expect(calls[0].url).toBe('http://127.0.0.1:3426/v1/bridge/turn')
@@ -61,11 +86,6 @@ test('turn.start calls /turn with the right fields and turn.step rewrites the ro
     store_hint: false,
   })
   expect(status).toContain('mbridge: fast · R5-classified')
-
-  // main-loop step on the routing group → this turn's tier group
-  const stream = $.turn.step({ turnId: 't1', index: 0, model: 'group/mbridge', messageCount: 1 })
-  let step = await stream.next()
-  while (step.done !== true) step = await stream.next()
   expect(seen).toEqual(['group/mb-fast'])
 })
 
@@ -210,14 +230,12 @@ for (const c of [
     })
 
     await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work/repo' })
-    const started = $.turn.start({ turnId: 't1', text: 'rename a variable' })
+    await $.turn.start({ turnId: 't1', text: 'rename a variable' })
+    const stepped = runStep($, 'group/mbridge') // SP13: this is where /turn is awaited
     await clock.advance(c.after)
     release()
     await clock.advance(10000)
-    await started
-    const stream = $.turn.step({ turnId: 't1', index: 0, model: 'group/mbridge', messageCount: 1 })
-    let step = await stream.next()
-    while (step.done !== true) step = await stream.next()
+    await stepped
     expect(seen).toEqual([c.want])
   })
 }
@@ -237,14 +255,12 @@ test('a turn with no budget learned asks mbridge for it before /turn', async ($,
   })
 
   // no session.start: nothing learned yet
-  const started = $.turn.start({ turnId: 't1', text: 'rename a variable' })
+  await $.turn.start({ turnId: 't1', text: 'rename a variable' })
+  const stepped = runStep($, 'group/mbridge')
   await clock.advance(2000)
   release()
   await clock.advance(10000)
-  await started
-  const stream = $.turn.step({ turnId: 't1', index: 0, model: 'group/mbridge', messageCount: 1 })
-  let step = await stream.next()
-  while (step.done !== true) step = await stream.next()
+  await stepped
   expect(seen).toEqual(['group/mb-fast'])
 })
 
@@ -259,14 +275,12 @@ test('empty-text turns skip /turn and keep the previous tier', async ($, on) => 
     return { turnId: e.turnId, index: e.index, answer: 'ok', toolUses: [], stopReason: 'end_turn', usage: null }
   })
 
-  await $.turn.start({ turnId: 't1', text: 'first' })
+  await startTurn($, 't1', 'first')
   await $.turn.start({ turnId: 't2', text: '' }) // continuation turn
+  await runStep($, 'group/mbridge', undefined, 't2')
 
   expect(calls.length).toBe(1)
-  const stream = $.turn.step({ turnId: 't2', index: 0, model: 'group/mbridge', messageCount: 1 })
-  let step = await stream.next()
-  while (step.done !== true) step = await stream.next()
-  expect(seen).toEqual(['group/mb-fast'])
+  expect(seen).toEqual(['group/mb-fast', 'group/mb-fast'])
 })
 
 test('session.start with the gateway up stays quiet', async ($, on) => {
@@ -316,33 +330,43 @@ test('agent.spawn: fork and preset models pass through (dead-code branch per S3)
 test('agent.spawn: R1 types map straight to an alias', async ($, on) => {
   const calls = fakeGateway(on, [{ tier: 'fast', group: 'group/mb-fast', reason: 'R5' }])
   spawnBasics(on)
+  on('turn.step', async function* (_$: unknown, e: { turnId: string; index: number; model: string }) {
+    return { turnId: e.turnId, index: e.index, answer: 'ok', toolUses: [], stopReason: 'end_turn', usage: null }
+  })
   const models: Array<string | undefined> = []
   on('agent.spawn', (_$: unknown, e: { prompt: string; subagentType: string; model?: string }) => {
     models.push(e.model)
     return { model: e.model ?? 'inherited', agentId: 'a0' }
   })
 
+  await startTurn($, 't1', 'go')
+  const asked = calls.length // the main turn's own /turn
   await $.agent.spawn({ prompt: 'find it', subagentType: 'Explore' })
   await $.agent.spawn({ prompt: 'plan it', subagentType: 'Plan' })
   expect(models).toEqual(['haiku', 'opus'])
-  expect(calls.length).toBe(0) // R1 needs no /turn call
+  expect(calls.length).toBe(asked) // R1 needs no /turn call
 })
 
 test('agent.spawn: other types ask the gateway with prompt and agent', async ($, on) => {
   const calls = fakeGateway(on, [
     { tier: 'balanced', group: 'group/mb-balanced', reason: 'R5' },
+    { tier: 'balanced', group: 'group/mb-balanced', reason: 'R5' },
     { tier: 'performance', group: 'group/mb-perf', reason: 'R5' },
   ])
   spawnBasics(on)
+  on('turn.step', async function* (_$: unknown, e: { turnId: string; index: number; model: string }) {
+    return { turnId: e.turnId, index: e.index, answer: 'ok', toolUses: [], stopReason: 'end_turn', usage: null }
+  })
   const models: Array<string | undefined> = []
   on('agent.spawn', (_$: unknown, e: { prompt: string; subagentType: string; model?: string }) => {
     models.push(e.model)
     return { model: e.model ?? 'inherited', agentId: 'a0' }
   })
 
+  await startTurn($, 't1', 'go')
   await $.agent.spawn({ prompt: 'fix the flaky test in rules_test.go', subagentType: 'general-purpose' })
-  const body = JSON.parse(calls[0].body ?? '{}')
-  expect(calls[0].url).toBe('http://127.0.0.1:3426/v1/bridge/turn')
+  const body = JSON.parse(calls[1].body ?? '{}') // calls[0] is the main turn's
+  expect(calls[1].url).toBe('http://127.0.0.1:3426/v1/bridge/turn')
   expect(body).toMatchObject({ harness: 'claude-code', session: 's-1', agent: 'general-purpose', store_hint: false })
   expect(models).toEqual(['sonnet'])
 })
@@ -452,11 +476,12 @@ test('tool.call counts main-session calls and failures, not subagent ones', asyn
     { text: 'file contents' },
   ])
 
+  await startTurn($, 't1', 'first')
   await $.tool.call({ tool: 'Bash', command: 'ls', agentId: undefined })
   await $.tool.call({ tool: 'Bash', command: 'ls /nope', agentId: undefined })
   await $.tool.call({ tool: 'Read', file_path: 'x', agentId: 'a1' }) // subagent: not counted
 
-  await $.turn.start({ turnId: 't2', text: 'next turn carries the stats' })
+  await startTurn($, 't2', 'next turn carries the stats')
   const body = JSON.parse(calls[calls.length - 1].body ?? '{}')
   expect(body.tool_calls).toBe(2)
   expect(body.tool_failures).toBe(1)
@@ -464,11 +489,13 @@ test('tool.call counts main-session calls and failures, not subagent ones', asyn
 
 test('tool.call stats reset after being reported', async ($, on) => {
   const { calls } = feedbackBasics(on, [{ text: 'ok' }])
+  await startTurn($, 't0', 'zero') // the turn the call belongs to
   await $.tool.call({ tool: 'Bash', command: 'ls', agentId: undefined })
-  await $.turn.start({ turnId: 't1', text: 'one' }) // reports 1/0, resets
-  await $.turn.start({ turnId: 't2', text: 'two' }) // reports 0/0
+  await startTurn($, 't1', 'one') // reports 1/0, resets
+  await startTurn($, 't2', 'two') // reports 0/0
   const bodies = calls.map((c: { body?: string }) => JSON.parse(c.body ?? '{}')).filter((b: any) => b.prompt)
   expect(bodies.map((b: any) => [b.tool_calls, b.tool_failures])).toEqual([
+    [0, 0],
     [1, 0],
     [0, 0],
   ])
@@ -476,6 +503,7 @@ test('tool.call stats reset after being reported', async ($, on) => {
 
 test('a Bash tool result with a PR link sends pr_created', async ($, on) => {
   const { calls } = feedbackBasics(on, [{ text: 'Opened: https://github.com/weiping/magpie-bridge/pull/6' }])
+  await startTurn($, 't1', 'open a PR')
   await $.tool.call({ tool: 'Bash', command: 'gh pr create', agentId: undefined })
   const fb = calls.find((c: { url: string }) => c.url.endsWith('/v1/bridge/feedback'))
   expect(fb).toBeDefined()
@@ -524,13 +552,16 @@ function derivedBasics(on: any, opts: { firstUser?: string; derived?: boolean } 
   on('classic.SessionStart', () => ({}))
   on('turn.start', (_$: unknown, e: { turnId: string }) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
+  on('turn.step', async function* (_$: unknown, e: { turnId: string; index: number; model: string }) {
+    return { turnId: e.turnId, index: e.index, answer: 'ok', toolUses: [], stopReason: 'end_turn', usage: null }
+  })
   return { calls, store, clock }
 }
 
 test('the first main turn.complete stores the first-message hash; later ones do not', async ($, on) => {
   const { store } = derivedBasics(on, { firstUser: 'help me with the router spec' })
 
-  await $.turn.start({ turnId: 't1', text: 'help me with the router spec' })
+  await startTurn($, 't1', 'help me with the router spec')
   await $.turn.complete({ turnId: 't1', answer: 'ok', durationMs: 10, isAborted: false, usage: null })
   await $.turn.complete({ turnId: 't2', answer: 'ok', durationMs: 10, isAborted: false, usage: null })
 
@@ -542,7 +573,7 @@ test('the first main turn.complete stores the first-message hash; later ones do 
 
 test('a subagent turn.complete does not store anything', async ($, on) => {
   const { store } = derivedBasics(on, { firstUser: 'hello' })
-  await $.turn.start({ turnId: 't1', text: 'hello' })
+  await startTurn($, 't1', 'hello')
   await $.turn.complete({ turnId: 't1', answer: 'ok', durationMs: 10, isAborted: false, usage: null, agentId: 'a1' })
   expect([...store.keys()].filter((k) => k.startsWith('qq:first'))).toEqual([])
 })
@@ -563,12 +594,12 @@ test('a derived session sends parent_session from the store on its first turn, o
   store.set('qq:first:' + hash, { session: 's-parent', at: 1000 })
 
   await $.classic.SessionStart({ source: 'fork' })
-  await $.turn.start({ turnId: 't1', text: 'help me with the router spec' })
+  await startTurn($, 't1', 'help me with the router spec')
   const first = JSON.parse(calls[0].body ?? '{}')
   expect(first.parent_session).toBe('s-parent')
 
   // second turn: no further lookup, and the field stays absent without a hit
-  await $.turn.start({ turnId: 't2', text: 'and now more' })
+  await startTurn($, 't2', 'and now more')
   const second = JSON.parse(calls[1].body ?? '{}')
   expect(second.parent_session).toBeUndefined()
 })
@@ -577,7 +608,7 @@ test('a non-derived session never consults the store', async ($, on) => {
   const { calls, store } = derivedBasics(on, { firstUser: 'plain session' })
   store.set('qq:first:' + fnv1a('plain session'), { session: 'other', at: 1 })
   await $.classic.SessionStart({ source: 'startup' })
-  await $.turn.start({ turnId: 't1', text: 'plain session' })
+  await startTurn($, 't1', 'plain session')
   const first = JSON.parse(calls[0].body ?? '{}')
   expect(first.parent_session).toBeUndefined()
 })
@@ -591,7 +622,7 @@ test('store entries older than 24h are pruned on write', async ($, on) => {
   store.set('qq:first:' + oldHash, { session: 's-old', at: 0 })
 
   await clock.set(25 * 3600 * 1000) // 25h later
-  await $.turn.start({ turnId: 't1', text: 'fresh one' })
+  await startTurn($, 't1', 'fresh one')
   await $.turn.complete({ turnId: 't1', answer: 'ok', durationMs: 1, isAborted: false, usage: null })
 
   const idx = store.get('qq:first-index') as Record<string, unknown>
@@ -636,8 +667,11 @@ test('turn.complete posts a review for a routed main turn and does not wait', as
   mock.clock(on)
   on('turn.start', (_$: unknown, e: { turnId: string }) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
+  on('turn.step', async function* (_$: unknown, e: { turnId: string; index: number; model: string }) {
+    return { turnId: e.turnId, index: e.index, answer: 'ok', toolUses: [], stopReason: 'end_turn', usage: null }
+  })
 
-  await $.turn.start({ turnId: 't1', text: 'what license is this repo?' })
+  await startTurn($, 't1', 'what license is this repo?')
   const started = Date.now()
   await $.turn.complete({ turnId: 't1', answer: 'ok', durationMs: 10, isAborted: false, usage: null })
   const elapsed = Date.now() - started
@@ -674,27 +708,30 @@ test('aborted, performance, subagent and gateway-mode turns post no review', asy
   mock.clock(on)
   on('turn.start', (_$: unknown, e: { turnId: string }) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
+  on('turn.step', async function* (_$: unknown, e: { turnId: string; index: number; model: string }) {
+    return { turnId: e.turnId, index: e.index, answer: 'ok', toolUses: [], stopReason: 'end_turn', usage: null }
+  })
 
   // aborted
-  await $.turn.start({ turnId: 't1', text: 'hello' })
+  await startTurn($, 't1', 'hello')
   await $.turn.complete({ turnId: 't1', answer: 'ok', durationMs: 1, isAborted: true, usage: null })
   expect(reviews.length).toBe(0)
 
   // performance tier
   mode = 'performance'
-  await $.turn.start({ turnId: 't2', text: 'hello' })
+  await startTurn($, 't2', 'hello')
   await $.turn.complete({ turnId: 't2', answer: 'ok', durationMs: 1, isAborted: false, usage: null })
   expect(reviews.length).toBe(0)
 
   // subagent
   mode = 'fast'
-  await $.turn.start({ turnId: 't3', text: 'hello' })
+  await startTurn($, 't3', 'hello')
   await $.turn.complete({ turnId: 't3', answer: 'ok', durationMs: 1, isAborted: false, usage: null, agentId: 'a1' })
   expect(reviews.length).toBe(0)
 
   // gateway mode: /turn failed, so no turn is recorded
   mode = 'down'
-  await $.turn.start({ turnId: 't4', text: 'hello' })
+  await startTurn($, 't4', 'hello')
   await $.turn.complete({ turnId: 't4', answer: 'ok', durationMs: 1, isAborted: false, usage: null })
   expect(reviews.length).toBe(0)
 })
@@ -710,11 +747,14 @@ test('the next /turn carries the previous main answer', async ($, on) => {
   mock.clock(on)
   on('turn.start', (_$: unknown, e: { turnId: string }) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
+  on('turn.step', async function* (_$: unknown, e: { turnId: string; index: number; model: string }) {
+    return { turnId: e.turnId, index: e.index, answer: 'ok', toolUses: [], stopReason: 'end_turn', usage: null }
+  })
 
-  await $.turn.start({ turnId: 't1', text: 'CI 还要吗？' })
+  await startTurn($, 't1', 'CI 还要吗？')
   await $.turn.complete({ turnId: 't1', answer: '提议：改三个工作流', durationMs: 10, isAborted: false, usage: null, reason: 'answer' })
   await $.turn.complete({ turnId: 'sub', answer: '子 agent 的回答', durationMs: 10, isAborted: false, usage: null, agentId: 'a1', reason: 'answer' })
-  await $.turn.start({ turnId: 't2', text: '按这个思路修改' })
+  await startTurn($, 't2', '按这个思路修改')
 
   const turns = calls.filter((c) => c.url.endsWith('/v1/bridge/turn')).map((c) => JSON.parse(c.body ?? '{}'))
   expect(turns.length).toBe(2)
@@ -735,18 +775,195 @@ test('an interrupted or failed turn leaves no previous answer', async ($, on) =>
   mock.clock(on)
   on('turn.start', (_$: unknown, e: { turnId: string }) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
+  on('turn.step', async function* (_$: unknown, e: { turnId: string; index: number; model: string }) {
+    return { turnId: e.turnId, index: e.index, answer: 'ok', toolUses: [], stopReason: 'end_turn', usage: null }
+  })
 
-  await $.turn.start({ turnId: 't1', text: '重构方案？' })
+  await startTurn($, 't1', '重构方案？')
   await $.turn.complete({ turnId: 't1', answer: '方案 A：大重构', durationMs: 10, isAborted: false, usage: null, reason: 'answer' })
-  await $.turn.start({ turnId: 't2', text: '先看下 B' })
+  await startTurn($, 't2', '先看下 B')
   await $.turn.complete({ turnId: 't2', answer: 'B 的半截', durationMs: 10, isAborted: true, usage: null, reason: 'aborted' })
-  await $.turn.start({ turnId: 't3', text: '按这个思路做' })
+  await startTurn($, 't3', '按这个思路做')
   await $.turn.complete({ turnId: 't3', answer: 'API Error: 500', durationMs: 10, isAborted: false, usage: null, reason: 'error' })
-  await $.turn.start({ turnId: 't4', text: '继续' })
+  await startTurn($, 't4', '继续')
 
   const turns = calls.filter((c) => c.url.endsWith('/v1/bridge/turn')).map((c) => JSON.parse(c.body ?? '{}'))
   expect(turns.length).toBe(4)
   expect(turns[1].previous_answer).toBe('方案 A：大重构')
   expect(turns[2].previous_answer).toBeUndefined()
   expect(turns[3].previous_answer).toBeUndefined()
+})
+
+// ---- SP13: only a turn on group/mbridge is routed ----
+
+// The model is known at the first turn.step of a turn, not at turn.start, so
+// that is where /turn is asked. These helpers drive one turn's steps.
+
+const turnCalls = (calls: Array<{ url: string }>) => calls.filter((c) => c.url.endsWith('/v1/bridge/turn'))
+const feedbackOf = (calls: Array<{ url: string; body?: string }>) =>
+  calls.filter((c) => c.url.endsWith('/v1/bridge/feedback')).map((c) => JSON.parse(c.body ?? '{}'))
+
+test('turn.start alone never asks mbridge: the model is not known yet', async ($, on) => {
+  const calls = fakeGateway(on, [{ tier: 'fast', group: 'group/mb-fast', reason: 'R5' }])
+  const { status } = stubBasics(on)
+  mock.clock(on)
+  on('turn.start', (_$: unknown, e: { turnId: string }) => ({ turnId: e.turnId }))
+
+  await $.turn.start({ turnId: 't1', text: 'what license is this repo?' })
+  expect(turnCalls(calls).length).toBe(0)
+  expect(status).toEqual([])
+})
+
+test('a turn on another model asks mbridge nothing and shows nothing', async ($, on) => {
+  const calls = fakeGateway(on, [{ tier: 'fast', group: 'group/mb-fast', reason: 'R5' }])
+  const { status } = stubBasics(on)
+  mock.clock(on)
+  on('turn.start', (_$: unknown, e: { turnId: string }) => ({ turnId: e.turnId }))
+  const seen = engineSeen(on)
+
+  for (const model of ['group/auto-claude-sonnet-5-5[1m]', 'group/mb-perf', 'cursor/claude-opus-5-5@1m']) {
+    await $.turn.start({ turnId: 't1', text: 'rename a variable' })
+    await runStep($, model)
+  }
+  expect(turnCalls(calls).length).toBe(0)
+  expect(status).toEqual([])
+  expect(seen).toEqual(['main:group/auto-claude-sonnet-5-5[1m]', 'main:group/mb-perf', 'main:cursor/claude-opus-5-5@1m'])
+})
+
+test('the first main step on group/mbridge asks once and later steps reuse it', async ($, on) => {
+  const calls = fakeGateway(on, [{ tier: 'fast', group: 'group/mb-fast', reason: 'R5-classified' }])
+  const { status } = stubBasics(on)
+  mock.clock(on)
+  on('turn.start', (_$: unknown, e: { turnId: string }) => ({ turnId: e.turnId }))
+  const seen = engineSeen(on)
+
+  await $.turn.start({ turnId: 't1', text: 'what license is this repo?' })
+  await runStep($, 'group/mbridge[1m]')
+  await runStep($, 'group/mbridge[1m]')
+
+  expect(turnCalls(calls).length).toBe(1)
+  expect(JSON.parse(turnCalls(calls)[0].body ?? '{}')).toMatchObject({
+    harness: 'claude-code',
+    session: 's-1',
+    prompt: 'what license is this repo?',
+    agent: 'main',
+  })
+  expect(status).toEqual(['mbridge: fast \u00b7 R5-classified'])
+  expect(seen).toEqual(['main:group/mb-fast[1m]', 'main:group/mb-fast[1m]'])
+})
+
+test('a /model switch between turns is read at the next turn', async ($, on) => {
+  const calls = fakeGateway(on, [{ tier: 'fast', group: 'group/mb-fast', reason: 'R5' }])
+  stubBasics(on)
+  mock.clock(on)
+  on('turn.start', (_$: unknown, e: { turnId: string }) => ({ turnId: e.turnId }))
+  const seen = engineSeen(on)
+
+  await $.turn.start({ turnId: 't1', text: 'one' })
+  await runStep($, 'group/mbridge', undefined, 't1')
+  await $.turn.start({ turnId: 't2', text: 'two' })
+  await runStep($, 'group/auto-claude-sonnet-5-5', undefined, 't2')
+  await $.turn.start({ turnId: 't3', text: 'three' })
+  await runStep($, 'group/mbridge', undefined, 't3')
+
+  expect(turnCalls(calls).length).toBe(2) // t1 and t3, not t2
+  expect(seen).toEqual(['main:group/mb-fast', 'main:group/auto-claude-sonnet-5-5', 'main:group/mb-fast'])
+})
+
+test('a subagent step never decides the main session mode', async ($, on) => {
+  const calls = fakeGateway(on, [{ tier: 'fast', group: 'group/mb-fast', reason: 'R5' }])
+  stubBasics(on)
+  mock.clock(on)
+  on('turn.start', (_$: unknown, e: { turnId: string }) => ({ turnId: e.turnId }))
+  engineSeen(on)
+
+  await $.turn.start({ turnId: 't1', text: 'go' })
+  await runStep($, 'group/mbridge', 'a1') // a subagent step comes first
+  expect(turnCalls(calls).length).toBe(0)
+  await runStep($, 'group/mbridge') // then the main one
+  expect(turnCalls(calls).length).toBe(1)
+})
+
+test('agent.spawn passes through while the main session is off or has not started a turn', async ($, on) => {
+  const calls = fakeGateway(on, [{ tier: 'fast', group: 'group/mb-fast', reason: 'R5' }])
+  spawnBasics(on)
+  engineSeen(on)
+  const models: Array<string | undefined> = []
+  on('agent.spawn', (_$: unknown, e: { prompt: string; subagentType: string; model?: string }) => {
+    models.push(e.model)
+    return { model: e.model ?? 'inherited', agentId: 'a0' }
+  })
+
+  await $.agent.spawn({ prompt: 'find it', subagentType: 'Explore' }) // no main turn yet
+  await $.turn.start({ turnId: 't1', text: 'go' })
+  await runStep($, 'group/auto-claude-sonnet-5-5')
+  await $.agent.spawn({ prompt: 'plan it', subagentType: 'Plan' })
+  await $.agent.spawn({ prompt: 'fix the flaky test', subagentType: 'general-purpose' })
+
+  expect(models).toEqual([undefined, undefined, undefined])
+  expect(calls.length).toBe(0)
+})
+
+test('agent.spawn is routed while the main session is on group/mbridge', async ($, on) => {
+  fakeGateway(on, [{ tier: 'balanced', group: 'group/mb-balanced', reason: 'R5' }])
+  spawnBasics(on)
+  engineSeen(on)
+  const models: Array<string | undefined> = []
+  on('agent.spawn', (_$: unknown, e: { prompt: string; subagentType: string; model?: string }) => {
+    models.push(e.model)
+    return { model: e.model ?? 'inherited', agentId: 'a0' }
+  })
+
+  await $.turn.start({ turnId: 't1', text: 'go' })
+  await runStep($, 'group/mbridge')
+  await $.agent.spawn({ prompt: 'find it', subagentType: 'Explore' })
+  await $.agent.spawn({ prompt: 'fix the flaky test', subagentType: 'general-purpose' })
+  expect(models).toEqual(['haiku', 'sonnet'])
+})
+
+test('on another model the tool stats, PR links and reviews stay quiet', async ($, on) => {
+  const { calls } = feedbackBasics(on, [{ text: 'Opened: https://github.com/weiping/magpie-bridge/pull/6' }])
+  on('turn.complete', () => ({ text: '' }))
+  const reviews = calls
+
+  await $.turn.start({ turnId: 't1', text: 'go' })
+  await runStep($, 'group/auto-claude-sonnet-5-5')
+  await $.tool.call({ tool: 'Bash', command: 'gh pr create', agentId: undefined })
+  await $.turn.complete({ turnId: 't1', answer: 'ok', durationMs: 1, isAborted: false, usage: null, reason: 'answer' })
+
+  expect(feedbackOf(calls)).toEqual([])
+  expect(reviews.filter((c) => c.url.endsWith('/v1/bridge/review')).length).toBe(0)
+  expect(turnCalls(calls).length).toBe(0)
+})
+
+test('on group/mbridge a PR link is reported', async ($, on) => {
+  const { calls } = feedbackBasics(on, [{ text: 'Opened: https://github.com/weiping/magpie-bridge/pull/6' }])
+  await $.turn.start({ turnId: 't1', text: 'go' })
+  await runStep($, 'group/mbridge')
+  await $.tool.call({ tool: 'Bash', command: 'gh pr create', agentId: undefined })
+  expect(feedbackOf(calls)).toEqual([
+    { session: 's-1', kind: 'pr_created', value: 'https://github.com/weiping/magpie-bridge/pull/6' },
+  ])
+})
+
+test('classic.PostModelSwitch reports only a switch away from group/mbridge', async ($, on) => {
+  const { calls } = feedbackBasics(on)
+  const sw = (from: string, to: string) => $.classic.PostModelSwitch({ from_model: from, to_model: to, source: 'command' })
+  await sw('group/mbridge[1m]', 'group/mb-perf') // away: reported
+  await sw('group/auto-claude-sonnet-5-5', 'group/mb-perf') // elsewhere to elsewhere: not
+  await sw('group/auto-claude-sonnet-5-5', 'group/mbridge') // back to mbridge: not
+  expect(feedbackOf(calls)).toEqual([
+    { session: 's-1', kind: 'manual_model_switch', value: 'group/mbridge[1m]\u2192group/mb-perf' },
+  ])
+})
+
+test('a /turn failure on group/mbridge still leaves the step on the routing group', async ($, on) => {
+  on('http.fetch', () => ({ deny: 'down' }))
+  stubBasics(on)
+  mock.clock(on)
+  on('turn.start', (_$: unknown, e: { turnId: string }) => ({ turnId: e.turnId }))
+  const seen = engineSeen(on)
+  await $.turn.start({ turnId: 't1', text: 'hello' })
+  await runStep($, 'group/mbridge')
+  expect(seen).toEqual(['main:group/mbridge'])
 })

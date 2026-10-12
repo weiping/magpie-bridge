@@ -3,7 +3,8 @@ import { atom, read, update, type Register } from 'claude-code'
 /**
  * magpie-bridge: routes each Claude Code turn across mbridge's tiers
  * (fast / balanced / performance) by asking the mbridge gateway at
- * turn.start and rewriting the model at turn.step. Fail-safe throughout:
+ * the first main turn.step and rewriting the model there, and only on a turn
+ * whose model is group/mbridge (SP13). Fail-safe throughout:
  * the worst outcome of any failure is a request left as group/mbridge,
  * which the gateway's own fallback mode routes.
  *
@@ -29,6 +30,12 @@ const stStored = atom({ plugin: 'magpie-bridge', key: 'stored' }, false)
 const stPrompt = atom({ plugin: 'magpie-bridge', key: 'prompt' }, null as string | null)
 const stTurnBudget = atom({ plugin: 'magpie-bridge', key: 'turnBudget' }, null as number | null)
 const stLastAnswer = atom({ plugin: 'magpie-bridge', key: 'lastAnswer' }, null as string | null)
+// SP13: whether the main session's current turn is on group/mbridge; null
+// until a main turn.step has said, so a spawn before any turn passes through
+const stMode = atom({ plugin: 'magpie-bridge', key: 'mode' }, null as 'on' | 'off' | null)
+// SP13: turn.start leaves the turn's words and id here; the first main
+// turn.step, which knows the model, answers for them
+const stPending = atom({ plugin: 'magpie-bridge', key: 'pending' }, null as { turnId: string; text: string } | null)
 
 // §5.8: the same hash on both the storing side and the looking-up side
 function fnv1a(s: string): string {
@@ -86,6 +93,9 @@ const FIXED_AGENT: Record<string, Tier> = {
 // §5.5 step 5: tier → the alias §4.5's env vars resolve to a tier group
 const TIER_ALIAS: Record<Tier, string> = { fast: 'haiku', balanced: 'sonnet', performance: 'opus' }
 
+// SP13's one switch: the turn's model is the routing group, "[1m]" or not
+const isRouted = (model: string): boolean => splitSuffix(model).base === ROUTING_GROUP
+
 // §5.8: a pinned agent's tier → its tier group (router init's §4.4 ids)
 const TIER_GROUP: Record<Tier, string> = { fast: 'group/mb-fast', balanced: 'group/mb-balanced', performance: 'group/mb-perf' }
 const tierGroup = (tier: Tier): string => TIER_GROUP[tier]
@@ -94,6 +104,52 @@ const tierGroup = (tier: Tier): string => TIER_GROUP[tier]
 const splitSuffix = (model: string): { base: string; suffix: string } => {
   const m = /^(.*?)(\[[^\]]*\])$/.exec(model)
   return m ? { base: m[1], suffix: m[2] } : { base: model, suffix: '' }
+}
+
+/** The turn's decision, asked at the first main turn.step of an on-turn
+ *  (SP13). Reports the tool stats since the last decision, as turn.start
+ *  did before. */
+async function decideMain($: any, gateway: string, text: string, turnId: string): Promise<void> {
+  const session = await $.session.id()
+  const stats = await read($, stToolStats)
+  const planMode = await read($, stPlanMode)
+  const cwd = await read($, stCwd)
+  const lastAnswer = await read($, stLastAnswer)
+  // a derived session looks its parent up once (§5.8)
+  let parentSession: string | undefined
+  const derived = await read($, stDerived)
+  if (derived.is && !derived.checked) {
+    await update($, stDerived, (d) => ({ ...d, checked: true }))
+    const hash = await firstUserHash($)
+    if (hash !== null) parentSession = await parentFromStore($, hash, session)
+  }
+  const decided = await decideTurn($, gateway, await turnBudget($, gateway), {
+    harness: 'claude-code',
+    session,
+    prompt: text,
+    agent: 'main',
+    plan_mode: planMode,
+    ...(cwd !== null ? { cwd } : {}),
+    ...(parentSession !== undefined ? { parent_session: parentSession } : {}),
+    tool_calls: stats.calls,
+    tool_failures: stats.failures,
+    store_hint: false,
+    // SP11: the reply before this prompt
+    ...(lastAnswer !== null ? { previous_answer: lastAnswer } : {}),
+  })
+  if (decided !== null) {
+    await update($, stTurn, () => ({ turnId, tier: decided.tier, group: decided.group }))
+    await update($, stMainTier, () => decided.tier)
+    try {
+      await $.ui.status(`mbridge: ${decided.tier} · ${decided.reason}`)
+    } catch {
+      // status is cosmetic
+    }
+  } else {
+    await update($, stTurn, () => null)
+  }
+  // reported (or failed reporting): start the next turn from zero
+  await update($, stToolStats, () => ({ calls: 0, failures: 0 }))
 }
 
 export const register: Register = (on, options) => {
@@ -126,56 +182,22 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
+  // SP13: turn.start knows the words but not the model. It keeps them, clears
+  // what the last turn decided, and leaves the asking to the first main
+  // turn.step, where the model is known.
   on('turn.start', async ($, e, next) => {
     if (e.text !== '') {
       await update($, stPrompt, () => e.text)
-      const session = await $.session.id()
-      const stats = await read($, stToolStats)
-      const planMode = await read($, stPlanMode)
-      const cwd = await read($, stCwd)
-      const lastAnswer = await read($, stLastAnswer)
-      // a derived session looks its parent up once (§5.8)
-      let parentSession: string | undefined
-      const derived = await read($, stDerived)
-      if (derived.is && !derived.checked) {
-        await update($, stDerived, (d) => ({ ...d, checked: true }))
-        const hash = await firstUserHash($)
-        if (hash !== null) parentSession = await parentFromStore($, hash, session)
-      }
-      const decided = await decideTurn($, gateway, await turnBudget($, gateway), {
-        harness: 'claude-code',
-        session,
-        prompt: e.text,
-        agent: 'main',
-        plan_mode: planMode,
-        ...(cwd !== null ? { cwd } : {}),
-        ...(parentSession !== undefined ? { parent_session: parentSession } : {}),
-        tool_calls: stats.calls,
-        tool_failures: stats.failures,
-        store_hint: false,
-        // SP11: the reply before this prompt
-        ...(lastAnswer !== null ? { previous_answer: lastAnswer } : {}),
-      })
-      if (decided !== null) {
-        await update($, stTurn, () => ({ turnId: e.turnId, tier: decided.tier, group: decided.group }))
-        await update($, stMainTier, () => decided.tier)
-        try {
-          await $.ui.status(`mbridge: ${decided.tier} · ${decided.reason}`)
-        } catch {
-          // status is cosmetic
-        }
-      } else {
-        await update($, stTurn, () => null)
-      }
-      // reported (or failed reporting) — start the next turn from zero
-      await update($, stToolStats, () => ({ calls: 0, failures: 0 }))
+      await update($, stPending, () => ({ turnId: e.turnId, text: e.text }))
+      await update($, stTurn, () => null)
     }
     return next(e)
   })
 
   on('tool.call', async ($, e, next) => {
     const r = await next(e)
-    if (e.agentId === undefined) {
+    // SP13: stats and PR links go to mbridge only on a turn it routes
+    if (e.agentId === undefined && (await read($, stMode)) === 'on') {
       // the engine hands a failed call's flags over at the top level in a
       // session; the test kit hands the wrapped { result: … } verbatim —
       // read both (probed 2026-10-05)
@@ -199,7 +221,8 @@ export const register: Register = (on, options) => {
   })
 
   on('classic.PostModelSwitch', async ($, e, next) => {
-    if (e.source === 'command' || e.source === 'picker') {
+    // SP13: only leaving group/mbridge is a manual switch worth reporting
+    if ((e.source === 'command' || e.source === 'picker') && isRouted(String(e.from_model ?? ''))) {
       await post($, gateway, '/v1/bridge/feedback', {
         session: await sessionOf($),
         kind: 'manual_model_switch',
@@ -214,6 +237,8 @@ export const register: Register = (on, options) => {
     //    (S3); kept for the day one does. Forks inherit the parent model.
     // 2. a model Claude already chose is respected.
     if (e.fork || e.model !== undefined) return next(e)
+    // SP13: off, or no main turn yet: the client's own aliases decide
+    if ((await read($, stMode)) !== 'on') return next(e)
     // 3. R1: the type settles it
     const fixed = FIXED_AGENT[e.subagentType]
     if (fixed !== undefined) return next({ ...e, model: TIER_ALIAS[fixed] })
@@ -295,6 +320,19 @@ export const register: Register = (on, options) => {
     // without the "[…]" suffix and keep it on the rewrite (the engine drops
     // it from the request and sends the 1M beta — checked on CC 2.1.296)
     const { base, suffix } = splitSuffix(e.model)
+    if (e.agentId === undefined) {
+      // SP13: the first main step of a turn knows the model, so it decides
+      // whether this turn is routed, and asks mbridge if it is
+      const pending = await read($, stPending)
+      if (pending !== null) {
+        await update($, stPending, () => null)
+        const routed = isRouted(e.model)
+        await update($, stMode, () => (routed ? 'on' : 'off'))
+        if (routed) await decideMain($, gateway, pending.text, pending.turnId)
+      } else if ((await read($, stMode)) === null) {
+        await update($, stMode, () => (isRouted(e.model) ? 'on' : 'off'))
+      }
+    }
     if (base !== ROUTING_GROUP) return yield* next(e)
     if (e.agentId !== undefined) {
       // an agent that inherited the main model pins to the main tier at
