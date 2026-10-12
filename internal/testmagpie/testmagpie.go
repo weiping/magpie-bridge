@@ -212,6 +212,46 @@ func Start(t *testing.T, bin string, up *Upstream, models ...string) *Magpie {
 	}
 }
 
+// WaitListed waits until the gateway's /v1/models lists id (listed true) or
+// no longer lists it (false), for up to 10 s. The gateway is a different
+// process from the magpie commands that change its config (group add,
+// provider off): the command sees its change at once, the gateway a moment
+// later. On macOS CI (magpie 0.1.1204, 10-12) /v1/models still had a group
+// and both models of a provider turned off right before. On the deadline it
+// fails with the list and magpie's own log.
+func (m *Magpie) WaitListed(t *testing.T, id string, listed bool) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	var ids []string
+	for {
+		ids = ids[:0]
+		if res, err := http.Get(m.URL + "/v1/models"); err == nil {
+			var body struct {
+				Data []struct {
+					ID string `json:"id"`
+				} `json:"data"`
+			}
+			if json.NewDecoder(res.Body).Decode(&body) == nil {
+				for _, d := range body.Data {
+					ids = append(ids, d.ID)
+				}
+			}
+			res.Body.Close()
+		}
+		found := false
+		for _, x := range ids {
+			found = found || x == id
+		}
+		if found == listed {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("/v1/models never came to list %q = %v: %v\nmagpie serve log:\n%s", id, listed, ids, m.Log())
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
 // CLI runs magpie with args in this HOME, failing the test on an error.
 func (m *Magpie) CLI(t *testing.T, args ...string) string {
 	t.Helper()
