@@ -163,7 +163,9 @@ func TestUserPromptTurnFailureStaysSilent(t *testing.T) {
 }
 
 func TestPreAgentPinsModelAndKeepsParams(t *testing.T) {
-	f, c := newFakeGateway(t, map[string]any{"tier": "fast", "group": "group/mb-fast"})
+	isolateTemp(t)
+	f, c := newFakeGateway(t, map[string]any{"tier": "fast", "group": "group/mb-fast"}, map[string]any{"tier": "fast", "group": "group/mb-fast"})
+	promptOn(t, c, "s1", "t1", "group/mbridge")
 	stdin := []byte(`{"hook_event_name":"PreToolUse","session_id":"s1","tool_name":"spawn_agent","tool_input":{"message":"search the repo","agent_type":"Explore"}}`)
 	out, err := PreAgent(context.Background(), stdin, c)
 	if err != nil || out == nil {
@@ -190,24 +192,31 @@ func TestPreAgentPinsModelAndKeepsParams(t *testing.T) {
 		t.Fatalf("model: %v", h.UpdatedInput["model"])
 	}
 	turns := f.at("/v1/bridge/turn")
+	turns = turns[len(turns)-1:] // the spawn's, after the prompt's
 	if len(turns) != 1 || turns[0]["agent"] != "Explore" || turns[0]["prompt"] != "search the repo" || turns[0]["store_hint"] != false {
 		t.Fatalf("turn: %v", turns)
 	}
 }
 
 func TestPreAgentDefaultsAgentType(t *testing.T) {
-	f, c := newFakeGateway(t, map[string]any{"tier": "balanced", "group": "group/mb-balanced"})
+	isolateTemp(t)
+	f, c := newFakeGateway(t, map[string]any{"tier": "balanced", "group": "group/mb-balanced"}, map[string]any{"tier": "balanced", "group": "group/mb-balanced"})
+	promptOn(t, c, "s1", "t1", "group/mbridge")
 	stdin := []byte(`{"hook_event_name":"PreToolUse","session_id":"s1","tool_name":"spawn_agent","tool_input":{"message":"do things"}}`)
 	if _, err := PreAgent(context.Background(), stdin, c); err != nil {
 		t.Fatal(err)
 	}
-	if turns := f.at("/v1/bridge/turn"); turns[0]["agent"] != "default" {
-		t.Fatalf("agent: %v", turns[0]["agent"])
+	turns := f.at("/v1/bridge/turn")
+	if last := turns[len(turns)-1]; last["agent"] != "default" {
+		t.Fatalf("agent: %v", last["agent"])
 	}
 }
 
 func TestPreAgentSkipsPresetModelAndFailures(t *testing.T) {
-	f, c := newFakeGateway(t) // failing gateway; the bare call still posts
+	isolateTemp(t)
+	f, c := newFakeGateway(t)                  // failing gateway; the bare call still posts
+	promptOn(t, c, "s", "t1", "group/mbridge") // its /turn fails: still the routing group
+	f.posts = nil
 	preset := []byte(`{"hook_event_name":"PreToolUse","session_id":"s","tool_name":"spawn_agent","tool_input":{"message":"x","model":"gpt-6"}}`)
 	if out, err := PreAgent(context.Background(), preset, c); out != nil || err != nil {
 		t.Fatal("preset model was touched")
@@ -222,7 +231,9 @@ func TestPreAgentSkipsPresetModelAndFailures(t *testing.T) {
 }
 
 func TestPostBashFindsPRLinkAnywhere(t *testing.T) {
-	f, c := newFakeGateway(t)
+	isolateTemp(t)
+	f, c := newFakeGateway(t, map[string]any{"tier": "fast", "group": "group/mb-fast"})
+	promptOn(t, c, "s1", "t1", "group/mbridge")
 	stdin := []byte(`{"hook_event_name":"PostToolUse","session_id":"s1","tool_name":"Bash","whatever":{"nested":{"output":"Opened https://github.com/weiping/magpie-bridge/pull/12 today"}}}`)
 	if out, err := PostBash(context.Background(), stdin, c); out != nil || err != nil {
 		t.Fatal("unexpected output")
@@ -233,7 +244,7 @@ func TestPostBashFindsPRLinkAnywhere(t *testing.T) {
 	}
 
 	f2, c2 := newFakeGateway(t)
-	PostBash(context.Background(), []byte(`{"session_id":"s","output":"no links here"}`), c2)
+	PostBash(context.Background(), []byte(`{"session_id":"s1","output":"no links here"}`), c2)
 	if len(f2.posts) != 0 {
 		t.Fatalf("posts: %v", f2.posts)
 	}
@@ -475,5 +486,135 @@ func TestAnswerStateOfAnotherSessionIsIgnored(t *testing.T) {
 	}
 	if got, ok := readAnswerState("s1"); ok {
 		t.Fatalf("read %q", got)
+	}
+}
+
+// ---- SP13: only a turn on group/mbridge is routed ----
+
+func promptOn(t *testing.T, c *harness.Client, session, turn, model string) {
+	t.Helper()
+	in := []byte(`{"hook_event_name":"UserPromptSubmit","session_id":"` + session + `","turn_id":"` + turn + `","prompt":"hi","model":"` + model + `"}`)
+	if out, err := UserPrompt(context.Background(), in, c); out != nil || err != nil {
+		t.Fatalf("out=%v err=%v", out, err)
+	}
+}
+
+const bareSpawn = `{"hook_event_name":"PreToolUse","session_id":"s1","tool_name":"spawn_agent","tool_input":{"message":"search the repo"}}`
+const prPost = `{"hook_event_name":"PostToolUse","session_id":"s1","tool_name":"Bash","output":"https://github.com/weiping/magpie-bridge/pull/12"}`
+
+// magpie names the group "group/mbridge[1m]" for a 1M window.
+func TestUserPromptRoutesTheSuffixedGroup(t *testing.T) {
+	isolateTemp(t)
+	f, c := newFakeGateway(t, map[string]any{"tier": "fast", "group": "group/mb-fast"})
+	promptOn(t, c, "s1", "t1", "group/mbridge[1m]")
+	if len(f.at("/v1/bridge/turn")) != 1 || len(f.at("/v1/bridge/feedback")) != 0 {
+		t.Fatalf("posts: %v", f.posts)
+	}
+}
+
+// On any other model the spawn, the PR link and the review all stay quiet.
+func TestOtherModelLeavesSpawnPRLinkAndReviewAlone(t *testing.T) {
+	isolateTemp(t)
+	f, c := newFakeGateway(t, map[string]any{"tier": "fast", "group": "group/mb-fast"})
+	promptOn(t, c, "s1", "t1", "group/auto-claude-sonnet-5-5")
+	if out, err := PreAgent(context.Background(), []byte(bareSpawn), c); out != nil || err != nil {
+		t.Fatalf("spawn: out=%v err=%v", out, err)
+	}
+	if out, err := PostBash(context.Background(), []byte(prPost), c); out != nil || err != nil {
+		t.Fatalf("pr: out=%v err=%v", out, err)
+	}
+	stop := []byte(`{"hook_event_name":"Stop","session_id":"s1","turn_id":"t1","last_assistant_message":"done"}`)
+	if out, err := Stop(context.Background(), stop, c); out != nil || err != nil {
+		t.Fatalf("stop: out=%v err=%v", out, err)
+	}
+	if len(f.at("/v1/bridge/turn")) != 0 || len(f.at("/v1/bridge/review")) != 0 {
+		t.Fatalf("mbridge was asked on another model: %v", f.posts)
+	}
+	for _, fb := range f.at("/v1/bridge/feedback") {
+		if fb["kind"] == "pr_created" {
+			t.Fatalf("PR link reported on another model: %v", fb)
+		}
+	}
+}
+
+// A routed turn keeps doing all three.
+func TestMbridgeModelStillRoutesSpawnAndReportsPRLink(t *testing.T) {
+	isolateTemp(t)
+	fast := map[string]any{"tier": "fast", "group": "group/mb-fast"}
+	f, c := newFakeGateway(t, fast, fast)
+	promptOn(t, c, "s1", "t1", "group/mbridge")
+	out, err := PreAgent(context.Background(), []byte(bareSpawn), c)
+	if err != nil || out == nil {
+		t.Fatalf("spawn not routed: out=%v err=%v", out, err)
+	}
+	PostBash(context.Background(), []byte(prPost), c)
+	if got := f.at("/v1/bridge/feedback"); len(got) != 1 || got[0]["kind"] != "pr_created" {
+		t.Fatalf("feedback: %v", got)
+	}
+}
+
+// No UserPromptSubmit seen for this session (or another session's): off.
+func TestSpawnAndPRLinkWithoutAModeAreOff(t *testing.T) {
+	isolateTemp(t)
+	f, c := newFakeGateway(t, map[string]any{"tier": "fast", "group": "group/mb-fast"})
+	promptOn(t, c, "other", "t1", "group/mbridge")
+	if out, _ := PreAgent(context.Background(), []byte(bareSpawn), c); out != nil {
+		t.Fatalf("spawn routed with no mode for its session: %s", out)
+	}
+	PostBash(context.Background(), []byte(prPost), c)
+	if len(f.at("/v1/bridge/feedback")) != 0 {
+		t.Fatalf("feedback: %v", f.at("/v1/bridge/feedback"))
+	}
+}
+
+// A turn that is off must not pair its answer with the last routed turn's prompt.
+func TestOffTurnDropsThePreviousPromptState(t *testing.T) {
+	isolateTemp(t)
+	f, c := newFakeGateway(t, map[string]any{"tier": "fast", "group": "group/mb-fast"})
+	promptOn(t, c, "s1", "t1", "group/mbridge")
+	promptOn(t, c, "s1", "t2", "group/auto-claude-sonnet-5-5")
+	stop := []byte(`{"hook_event_name":"Stop","session_id":"s1","turn_id":"t2","last_assistant_message":"done"}`)
+	Stop(context.Background(), stop, c)
+	if got := len(f.at("/v1/bridge/review")); got != 0 {
+		t.Fatalf("an off turn posted %d reviews", got)
+	}
+}
+
+// A session that never used mbridge is not a manual switch; leaving mbridge
+// is, once; staying off is not, again.
+func TestManualSwitchIsReportedOnlyWhenLeavingMbridge(t *testing.T) {
+	isolateTemp(t)
+	f, c := newFakeGateway(t, map[string]any{"tier": "fast", "group": "group/mb-fast"})
+	switches := func() int {
+		n := 0
+		for _, fb := range f.at("/v1/bridge/feedback") {
+			if fb["kind"] == "manual_model_switch" {
+				n++
+			}
+		}
+		return n
+	}
+	promptOn(t, c, "s1", "t1", "group/auto-claude-sonnet-5-5")
+	promptOn(t, c, "s1", "t2", "group/auto-claude-sonnet-5-5")
+	if switches() != 0 {
+		t.Fatalf("a session that started off reported %d switches", switches())
+	}
+
+	promptOn(t, c, "s2", "t1", "group/mbridge")
+	promptOn(t, c, "s2", "t2", "gpt-6-sol")
+	promptOn(t, c, "s2", "t3", "gpt-6-sol")
+	if switches() != 1 {
+		t.Fatalf("leaving mbridge reported %d switches, want 1", switches())
+	}
+	if fb := f.at("/v1/bridge/feedback"); fb[0]["value"] != "gpt-6-sol" {
+		t.Fatalf("value: %v", fb[0])
+	}
+
+	// back on, then off again: a second switch
+	f.turns = append(f.turns, map[string]any{"tier": "fast", "group": "group/mb-fast"})
+	promptOn(t, c, "s2", "t4", "group/mbridge")
+	promptOn(t, c, "s2", "t5", "gpt-6-sol")
+	if switches() != 2 {
+		t.Fatalf("switches: %d, want 2", switches())
 	}
 }

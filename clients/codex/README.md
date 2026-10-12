@@ -14,6 +14,14 @@ or multi-file work — decided per turn by the mbridge gateway.
   no model of their own; spawns you configured stay untouched.
 - `PostToolUse` on Bash reports GitHub PR links it sees (`pr_created`).
 
+All of this happens only on a turn whose model is `group/mbridge` (a trailing
+`[1m]` is ignored). On any other model the plugin stays silent: no `/turn`, no
+spawn routing, no PR links, no review. The model is the one Codex settled on
+after merging its config layers (`-p`, the project's `.codex/config.toml`, the
+user's `config.toml`), so a project can turn routing on or off by naming the
+model there. Leaving `group/mbridge` mid-session is reported once as
+`manual_model_switch`; a session that began on another model reports nothing.
+
 Every hook is fail-safe: gateway down, timeouts, malformed input — the
 hook stays silent, exits 0, and the request simply goes out as
 `group/mbridge`, which the gateway's own fallback mode routes.

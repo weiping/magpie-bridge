@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"github.com/weiping/magpie-bridge/internal/harness"
 )
@@ -19,6 +20,60 @@ import (
  */
 
 const routingGroup = "group/mbridge"
+
+// isRouted reports whether a turn's model is the routing group. magpie names
+// the group "group/mbridge[1m]" for a 1M window, so a trailing "[…]" is
+// ignored (SP13).
+func isRouted(model string) bool {
+	if i := strings.IndexByte(model, '['); i >= 0 && strings.HasSuffix(model, "]") {
+		model = model[:i]
+	}
+	return model == routingGroup
+}
+
+// modeState is what UserPromptSubmit leaves for the other hooks (SP13): the
+// session's latest turn, whether it was on the routing group, and the model.
+// Every hook is its own process, so this file is the only way PreToolUse and
+// PostToolUse learn what the prompt hook saw.
+type modeState struct {
+	Session string `json:"session"`
+	Routed  bool   `json:"routed"`
+	Model   string `json:"model"`
+}
+
+// modeStatePath is $TMPDIR/mbridge-codex-<session>-mode.json.
+func modeStatePath(session string) string {
+	return filepath.Join(os.TempDir(), "mbridge-codex-"+session+"-mode.json")
+}
+
+func writeModeState(st modeState) {
+	b, err := json.Marshal(st)
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(modeStatePath(st.Session), b, 0o600)
+}
+
+// readModeState is the session's last mode. A missing or unreadable file, or
+// another session's, is a miss: callers treat it as off, never as on.
+func readModeState(session string) (modeState, bool) {
+	b, err := os.ReadFile(modeStatePath(session))
+	if err != nil {
+		return modeState{}, false
+	}
+	var st modeState
+	if json.Unmarshal(b, &st) != nil || st.Session != session {
+		return modeState{}, false
+	}
+	return st, true
+}
+
+// routedSession is true only when the session's latest prompt was on the
+// routing group.
+func routedSession(session string) bool {
+	st, ok := readModeState(session)
+	return ok && st.Routed
+}
 
 // prLink matches a GitHub pull-request URL anywhere in the raw input, so
 // field-name drift between Codex versions cannot hide a link (§6.9).
@@ -53,14 +108,22 @@ func UserPrompt(ctx context.Context, stdin []byte, c *harness.Client) ([]byte, e
 	// SP11: the answer Stop kept is good for this one prompt. Taking it
 	// now means a turn that never reaches Stop (interrupted) leaves none.
 	prevAnswer, hasPrev := takeAnswerState(in.SessionID)
-	if in.Model != "" && in.Model != routingGroup {
-		// the user pinned a model (or Codex switched): report, don't route.
-		// dedup happens in the report, not here (§6.9 note).
-		c.Feedback(ctx, map[string]any{
-			"session": in.SessionID,
-			"kind":    "manual_model_switch",
-			"value":   in.Model,
-		})
+	prev, hadPrev := readModeState(in.SessionID)
+	routed := in.Model == "" || isRouted(in.Model)
+	writeModeState(modeState{Session: in.SessionID, Routed: routed, Model: in.Model})
+	if !routed {
+		// SP13: not the routing group, so nothing is routed, and this turn's
+		// Stop must not pair its answer with an earlier turn's prompt.
+		_ = os.Remove(promptStatePath(in.SessionID))
+		// Leaving the routing group is a manual switch, reported once. A
+		// session that began elsewhere chose its model in a config file.
+		if hadPrev && prev.Routed {
+			c.Feedback(ctx, map[string]any{
+				"session": in.SessionID,
+				"kind":    "manual_model_switch",
+				"value":   in.Model,
+			})
+		}
 		return nil, nil
 	}
 	body := map[string]any{
@@ -184,8 +247,8 @@ func PreAgent(ctx context.Context, stdin []byte, c *harness.Client) ([]byte, err
 	if err := json.Unmarshal(stdin, &in); err != nil {
 		return nil, nil
 	}
-	if in.ToolInput == nil {
-		return nil, nil
+	if in.ToolInput == nil || !routedSession(in.SessionID) {
+		return nil, nil // SP13: a spawn is routed only on the routing group
 	}
 	if s, _ := in.ToolInput["model"].(string); s != "" {
 		return nil, nil // already chosen
@@ -240,6 +303,9 @@ func PostBash(ctx context.Context, stdin []byte, c *harness.Client) ([]byte, err
 	var in input
 	if err := json.Unmarshal(stdin, &in); err == nil {
 		session = in.SessionID
+	}
+	if !routedSession(session) {
+		return nil, nil // SP13: a link is reported only on the routing group
 	}
 	c.Feedback(ctx, map[string]any{
 		"session": session,
