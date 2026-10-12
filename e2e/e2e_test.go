@@ -69,6 +69,9 @@ func setup(t *testing.T) *env {
 			t.Fatal(err)
 		}
 	}
+	for _, id := range []string{"mb-fast", "mb-balanced", "mb-perf", "mbridge"} {
+		m.WaitListed(t, "group/"+id, true) // the gateway learns of them a moment after magpie group add returns
+	}
 	path := filepath.Join(t.TempDir(), "router.json")
 	cfg := `{"version":1,"router_group":"mbridge","default_tier":"balanced","classifier":"fake/clf",
 	  "classify_timeout_ms":5000,"magpie_url":` + jsonStr(m.URL) + `,

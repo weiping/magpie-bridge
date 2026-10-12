@@ -94,11 +94,12 @@ func TestContractGroupAddThenList(t *testing.T) {
 
 // /v1/models lists a group as group/<id>, which router check reads.
 func TestContractModelsListsGroups(t *testing.T) {
-	_, c := start(t)
+	m, c := start(t)
 	ctx := context.Background()
 	if err := c.GroupAdd(ctx, "mb-perf", []string{"fake/m2"}); err != nil {
 		t.Fatal(err)
 	}
+	m.WaitListed(t, "group/mb-perf", true)
 	ids, err := c.Models(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -117,6 +118,7 @@ func TestContractGroupShowsUnservedMembers(t *testing.T) {
 	if err := c.GroupAdd(ctx, "mb-perf", []string{"fake/m2"}); err != nil {
 		t.Fatal(err)
 	}
+	m.WaitListed(t, "group/mb-perf", true) // so that the wait below sees it go
 	g, err := c.Group(ctx, "mb-perf")
 	if err != nil {
 		t.Fatal(err)
@@ -134,13 +136,7 @@ func TestContractGroupShowsUnservedMembers(t *testing.T) {
 	if g.Served() || len(g.Members) != 1 || g.Members[0].NotServed == "" {
 		t.Fatalf("unserved group read as %+v", g)
 	}
-	ids, err := c.Models(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if slices.Contains(ids, magpie.GroupPrefix+"mb-perf") {
-		t.Fatalf("/v1/models still lists the unserved group: %v", ids)
-	}
+	m.WaitListed(t, "group/mb-perf", false)
 	if _, err := c.Group(ctx, "mb-none"); !errors.Is(err, magpie.ErrNoGroup) {
 		t.Fatalf("missing group: %v", err)
 	}
@@ -209,6 +205,7 @@ func TestContractSessionHeaderReachesUsage(t *testing.T) {
 	if err := c.GroupAdd(ctx, "mb-fast", []string{"fake/m1"}); err != nil {
 		t.Fatal(err)
 	}
+	m.WaitListed(t, "group/mb-fast", true)
 	post(t, m, "/v1/chat/completions", `{"model":"group/mb-fast","messages":[{"role":"user","content":"hi"}]}`,
 		map[string]string{wire.SessionHeader: "s1"})
 	usageWhen(t, m, c, func(rows []magpie.UsageRow) bool {
