@@ -102,6 +102,7 @@ mbridge 的路由配置有两处：magpie 里的四个路由组（存在 magpie 
 | --- | --- | --- |
 | `mb-fast` / `mb-balanced` / `mb-perf` | 三个档位组，各自是「主成员 + 失败转移成员」的列表 | `order` |
 | `mbridge` | 路由组：Codex 和网关模式的请求带着 `group/mbridge` 进 mbridge，代理按轮改写成某一档；绕过 mbridge 直接请求它时，magpie 按顺序落到 balanced | `order` |
+| `mb-native` / `mb-native-balanced` | `router init --native` 才建，和 mbridge 的路由互不相干，见[下一节](#只用-magpie-原生规则选档mb-native) | `order` |
 
 #### 换档位组里的模型
 
@@ -244,6 +245,98 @@ magpie provider add typesafe <api-key>
 | `MBRIDGE_URL` | 插件和 hook 访问 mbridge 的地址，默认 `http://127.0.0.1:3426`。Codex 的 hook 子进程不继承自定义环境变量，请让 mbridge 跑在默认端口 |
 
 Claude Code 插件的地址另有 `gateway_url` 设置（`claude plugin install magpie-bridge@magpie-bridge --config gateway_url=…`）。
+
+## 只用 magpie 原生规则选档（`mb-native`）
+
+只需要逐轮按难度选档，不需要升档、降档迟滞、A/B 实验和校准时，可以不经过 mbridge，直接用 magpie 路由组自带的「按意图选成员」规则。Agent 直连 magpie（`127.0.0.1:3425`），模型设成 `group/mb-native`，不用 `mbridge serve`。
+
+### 原生规则怎么选档
+
+1. **只在新一轮开始时判一次。** 最后一条用户消息有文字、没有工具结果，就是新一轮；同一轮里的工具回合沿用这次的决定，不再问分类器。
+2. **分类器只看最后一条用户消息。** 去掉 `<system-reminder>…</system-reminder>`，超过 4000 个字符时保留前 3000 和后 1000；图片不送；更早的对话不送，只额外带上上一轮被判成的意图。
+3. **先收集候选意图。** 规则从上到下看，其他条件（长度、图片、推理、Agent 等）成立的规则，把它的意图收进来；遇到第一条没有意图的规则就停，它直接命中。收不到意图就不问分类器。
+4. **分类器给出一个意图。**
+   - 用 Jev 时，每组新的意图先多问一次，判断它们是「档位」（每条消息都在其中一档）还是「话题」（消息可以都不是），结果缓存在内存里。
+   - 档位：Jev 总会选一档；置信度低于 0.4 且有上一轮时，沿用上一轮的档位。
+   - 话题：选了「none of these」，或置信度低于 0.4，就没有意图命中。
+   - 用普通聊天模型当分类器时，它按编号回答，`0` 表示都不是。
+5. **失败只丢掉路由，不丢掉请求。** 超时 8 秒；失败后该分类器 30 秒内不再被问；分类器答不出来，就当没有意图命中。同一个分类器、同一组意图、同一条消息的答案在内存里缓存 10 分钟。
+6. **规则从上到下匹配，第一条命中的赢。** 它指向的成员排到最前面，其余成员按原来的顺序做故障转移；规则优先于 `stays`。对话长到当前模型窗口的 95% 时，只会换到窗口更大的模型。
+
+置信度阈值 0.4 是写死的，不能改。
+
+### 搭建
+
+先把 `router.json` 的 `classifier` 设成 magpie 能问的模型（见上文「分类器：TypeSafe Jev」），再让 init 建组：
+
+```sh
+mbridge router init --preset cn --groups-only --native   # 预设名照你当初 init 的写；已有的组都保留
+magpie group mb-native                                   # 看成员、规则和分类器
+```
+
+`--native` 在 `mb-fast`、`mb-balanced`、`mb-perf` 已经在 magpie 里的前提下，另外建两个组，不改前三个：
+
+| 组 | 成员 |
+| --- | --- |
+| `mb-native-balanced` | `mb-balanced` 当前的成员；与 `mb-perf` 共有的，带上 `:medium` 之类的后缀（原因见下一节） |
+| `mb-native` | `group/mb-perf`、`group/mb-native-balanced`、`group/mb-fast`，`routing=order`、`stays=turn` |
+
+`mb-native` 上有四条规则：fast、balanced、performance 三条按意图选，意图文本取 `router.json` 里各档的 `criteria`；第四条没有意图（`tokens=1`），分类失败或没有意图命中时落到 `default_tier` 那一档。
+
+- `classifier` 还是占位值 `local` 时，init 只提示，不建原生组，其余照常完成；设好分类器再跑一次即可。
+- 已在 magpie 里的原生组原样保留；`mb-native` 在但一条规则都没有时，只补规则。
+- `--force` 不用来重建原生组：它会把四个档位组按预设放回去，并把 `router.json` 写回默认值（分类器又成 `local`）。要重建，先 `magpie group rm mb-native mb-native-balanced`，再跑 `mbridge router init --preset … --groups-only --native`。改了 `criteria` 或档位组的成员之后，规则和 `mb-native-balanced` 不会自动跟着变，也这样重建。
+
+规则里的分类器可以是任何 magpie 有的模型，建议用小而快、不带推理的；它的调用会作为 magpie 自己的请求出现在 Usage 里。
+
+不想用 init 时，等价的手动命令（成员换成你自己 `mb-balanced` 里的模型）：
+
+```sh
+magpie group add mb-native-balanced models=zhipu/glm-5.3,deepseek/deepseek-v4-pro:medium,kimi-code-cn/k3:medium,… routing=order
+magpie group add mb-native models=group/mb-perf,group/mb-native-balanced,group/mb-fast routing=order stays=turn
+magpie group rule add mb-native use=group/mb-fast classifier=typesafe/jev-latest intent="<fast 的 criteria>"
+magpie group rule add mb-native use=group/mb-native-balanced intent="<balanced 的 criteria>"
+magpie group rule add mb-native use=group/mb-perf intent="<performance 的 criteria>"
+magpie group rule add mb-native use=group/mb-native-balanced tokens=1
+```
+
+### 嵌套组的成员去重
+
+外层组把子组展开成成员时，同一个模型只保留在**最先出现**的子组里。`mb-balanced` 和 `mb-perf` 常常共有几个模型：外层把 balanced 排在前面，这些模型就归 balanced，规则指向 `mb-perf` 时，它的第一个成员会变成第二个，而不是你排在第一位的那个。
+
+`init --native` 用两个办法避开，不需要自己动手：
+
+- **外层顺序**：perf 排最前，它的成员原样保留。
+- **推理后缀**：同一个模型带不同后缀算两个成员。`mb-native-balanced` 里与 perf 共有的模型，init 会按 `medium`、`low`、`high`、`xhigh` 的顺序挑一个没被占用的后缀加上（`:fast` 标记保留，`:free` 这类属于模型 id 的结尾不当后缀），并把改了哪些打印出来。代价是这些成员的推理强度被固定，不再跟随 Agent 的请求。
+
+`mb-fast` 被两边复用，init 不改它；它的成员与 perf 或 balanced 共有时，init 会提示那个成员在 `mb-native` 里只算在前面的组里。以后往几个档位组里加同一个模型，会再遇到这件事，重建原生组就会重新处理。
+
+### 和 mbridge 的差别
+
+| 能力 | mbridge | 原生规则 |
+| --- | --- | --- |
+| 每轮按难度选 fast / balanced / performance | 是 | 是 |
+| 置信度阈值 | `thresholds.tier_min`，默认 0.4 | 固定 0.4 |
+| 「继续」「按这个做」这类追问沿用上一轮的档位 | 是 | 是 |
+| 降档迟滞（`cache_ttl_seconds`，R6） | 有：距上次请求不到 300 秒不降档 | 没有：每轮按分类结果换档，换模型会让提示缓存失效 |
+| 用户说上一轮不对时升档（R3、R4）、轮末复核 | 有 | 没有 |
+| 子代理类型固定档位（`fixed_agents`） | 有 | 可用规则的 `agents=` 条件近似 |
+| 分类依据 | 用户原话、上一轮回答、计划模式、Agent 和子代理类型 | 最后一条用户消息和上一轮的意图 |
+| A/B 实验、报表、校准 | 有 | 没有 |
+| 需要 `mbridge serve` | 是 | 否 |
+
+### 在 Codex 里用
+
+用原生组时，Codex **不用 `-p mbridge`**，也不需要 `magpie-bridge-codex` 插件。`-p mbridge` 让请求经 mbridge 的代理（3426）；原生组靠 magpie 自己路由，Codex 只要走默认的 magpie provider（`model_provider = "magpie"`，指向 3425）并把模型设成 `group/mb-native`：
+
+```sh
+codex -m group/mb-native             # 单次指定
+# 或在 ~/.codex/config.toml 里写 model = "group/mb-native"
+```
+
+- Codex 的 `<environment_context>` 不会影响选档：它单独成一条用户消息（TUI），或和提示放在同一条消息里（`codex exec`），两种请求形状都按提示本身分类。
+- 已装 `magpie-bridge-codex` 插件的话，**不要在 `/hooks` 里信任它的 hook**。模型不是 `group/mbridge` 时，hook 会把每次提示上报成 `manual_model_switch`，并给不带模型的 `spawn_agent` 钉上 `group/mb-<档>`，绕过原生规则。默认配置下这些 hook 不会触发（它们的信任记录目前只写在 `~/.codex/mbridge.config.toml` 里），只要不在默认配置里信任它们就不会有影响。
+- 要回到 mbridge 的选档，照常 `codex -p mbridge`。两种方式互不影响。
 
 ## 分支与发版
 

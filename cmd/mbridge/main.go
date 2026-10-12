@@ -17,8 +17,9 @@ const usageText = `mbridge — per-turn model routing for coding agents, on offi
   mbridge serve                         run mbridge in the foreground (the service runs it)
   mbridge service install|uninstall|status  run mbridge at login
   mbridge status                        magpie, mbridge, the tier groups and the latest decisions
-  mbridge router init --preset <frontier|anthropic|cn> [--groups-only] [--force]
+  mbridge router init --preset <frontier|anthropic|cn> [--groups-only] [--force] [--native]
                                         tier groups in magpie, router.json, and the agents' wiring
+                                        (--native: also the groups that route by magpie's own rules)
   mbridge router check [--yes]          the tier groups exist and are big enough (--yes: live, billed)
   mbridge router report [--since 14d] [--json]   the experiment report
   mbridge router calibrate [--since 14d] [--score tier|dissatisfied|review] [--harness h] [--agent main|sub] [--csv]

@@ -39,6 +39,14 @@ func (c *Client) GroupSet(ctx context.Context, id string, kv ...string) error {
 	return err
 }
 
+// GroupRuleAdd adds a rule to a group: `magpie group rule add <id> k=v…`
+// (use=, intent=, classifier=, tokens=, …). Each k=v is one argument, so an
+// intent with spaces needs no quoting.
+func (c *Client) GroupRuleAdd(ctx context.Context, id string, kv ...string) error {
+	_, err := c.cli(ctx, append([]string{"group", "rule", "add", id}, kv...)...)
+	return err
+}
+
 // Groups lists the ids of magpie's routing groups (`magpie groups`).
 func (c *Client) Groups(ctx context.Context) ([]string, error) {
 	out, err := c.cli(ctx, "groups")
@@ -62,6 +70,7 @@ var ErrNoGroup = errors.New("magpie has no such group")
 type Group struct {
 	ID      string
 	Members []GroupMember
+	Rules   int // how many rules the group has
 }
 
 // GroupMember is one model of a group. NotServed is magpie's reason when it
@@ -118,7 +127,29 @@ func (c *Client) Group(ctx context.Context, id string) (*Group, error) {
 	if !inModels {
 		return nil, &Error{Op: "group " + id, Msg: "no models line in: " + strings.TrimSpace(string(out))}
 	}
+	g.Rules = countRules(string(out))
 	return g, nil
+}
+
+// countRules counts the numbered lines of the "rules" section of `magpie
+// group <id>`: the line that starts with "rules" and the numbered lines
+// after it, up to the first line that is not numbered (the "classifier"
+// line). No such section is 0.
+func countRules(out string) int {
+	n, in := 0, false
+	for _, line := range strings.Split(out, "\n") {
+		f := strings.Fields(line)
+		if len(f) > 0 && f[0] == "rules" {
+			in, f = true, f[1:]
+		} else if !in {
+			continue
+		}
+		if len(f) == 0 || !isNumber(f[0]) {
+			break
+		}
+		n++
+	}
+	return n
 }
 
 func isNumber(s string) bool {

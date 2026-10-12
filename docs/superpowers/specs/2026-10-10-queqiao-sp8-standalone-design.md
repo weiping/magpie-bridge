@@ -39,6 +39,7 @@ queqiao 现在是 yetone/magpie 的 fork，靠每周把上游 main 合并进 `qu
 | 调 Jev | `Server.AskDecider` → `systemOne` | `POST /v1/systemone`（`serveSystemOne`，按 `model` 前缀找决策 provider）。loopback 上不需要网关密钥 |
 | 调普通分类模型 | `Server.AskChat` → 网关内部 `serve` | `POST /v1/chat/completions` |
 | 建档位分组 | `provider.SaveGroup` | `magpie group add <name> models=… routing=order`，改动用 `magpie group set` |
+| 建原生选档组（可选，SP12） | — | `magpie group rule add <id> k=v…`，读规则个数用 `magpie group <id>`；见 SP12 |
 | 解析预设成员 | `provider` 包里的模型表 | `GET /v1/models` |
 | 报表的逐请求记录与成本 | `usage.Load` + `catalog.PriceOf` | `magpie usage --csv all`，列里有 `time`、`requested_model`、`provider`、`model`、`cost_usd`、`status`、`session`（`internal/usage/ledger.go` 的 `CSVHeader`） |
 | Codex 的 provider 表 | 复用 magpie 写的 `[model_providers.magpie]` | 自己写 profile 文件 `~/.codex/queqiao.config.toml`（§5.6），`config.toml` 一行不写，magpie 的同步碰不到它（V1 实测） |
