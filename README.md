@@ -19,8 +19,8 @@ Magpie Bridge 和官方 [magpie](https://github.com/yetone/magpie) 并排运行�
 | 组件 | 用于 | 状态 |
 | --- | --- | --- |
 | 守护进程（`mbridge serve`）：`/v1/bridge/*` 与 Codex、网关模式的代理（`internal/router/`、`internal/proxy/`） | 所有 Agent | 默认监听 3426 |
-| Claude Code 插件 `magpie-bridge`（`clients/claude-code/`） | Claude Code | 0.2.3，默认连 3426 |
-| Pi 包 `@weiping/pi-magpie-bridge`（`clients/pi/`） | Pi | 0.2.2，自报工具统计 |
+| Claude Code 插件 `magpie-bridge`（`clients/claude-code/`） | Claude Code | 0.3.0，默认连 3426 |
+| Pi 包 `@weiping/pi-magpie-bridge`（`clients/pi/`） | Pi | 0.3.0，自报工具统计 |
 | Codex 插件 `magpie-bridge-codex`（`clients/codex/`） | Codex | 0.2.1，配合 `codex -p mbridge` |
 | 报表、复核与校准（`mbridge router report`、`calibrate`） | 所有 Agent | 成本取 magpie 的 `usage --csv` |
 
@@ -82,6 +82,14 @@ Magpie Bridge 和官方 [magpie](https://github.com/yetone/magpie) 并排运行�
    ```
 
 Claude Code 和 Pi 的请求直接发给 magpie，插件逐轮把模型切到 `group/mb-<档>`；Codex 的请求先到 mbridge，代理按轮把 `group/mbridge` 改写成某一档再转给 magpie。没有插件的 Agent 把 base URL 设成 `http://127.0.0.1:3426/v1`、模型设成 `group/mbridge`，就是网关模式。
+
+**选了 `group/mbridge` 才选档（SP13）**。三个插件逐轮只看这一轮实际用的模型：是 `group/mbridge`（末尾的 `[1m]` 不算）就判档、改写、给子代理挑档、上报工具统计和 PR 链接；是别的（`group/auto-claude-*`、`group/mb-perf`、任何具体模型）就对 mbridge 完全静默。模型是客户端把命令行、`/model`、项目设置、用户设置合并之后的结果（项目优先），插件不读任何配置文件。所以用户级选 `group/auto-claude-*`、某个项目写 `group/mbridge`，这个项目就选档，反之亦然。
+
+| 客户端 | 项目里怎么写 |
+| --- | --- |
+| Claude Code | `.claude/settings.json`：`{"model": "group/mbridge[1m]"}`；子代理跑在 `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL` 上，要一致的话在项目的 `env` 里一起覆盖 |
+| Codex | `codex -p mbridge`，或项目的 `.codex/config.toml` 写 `model = "group/mbridge"` |
+| Pi | 项目的 `.pi/settings.json`：`defaultProvider` 写 `magpie`、`defaultModel` 写 `group/mbridge`（项目要先被 Pi 信任，这个文件才会加载） |
 
 其他命令：
 

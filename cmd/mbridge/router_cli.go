@@ -381,17 +381,19 @@ var piModelsPath = func() string {
 	return filepath.Join(home, ".pi", "agent", "models.json")
 }
 
-// routerInitPi points Pi at the balanced tier (§4.5) through magpie's own
-// wiring, `magpie pi group/mb-balanced`; without Pi, magpie says so and
-// init goes on. It also takes out the top-level "magpie": {"default": …}
+// routerInitPi points Pi at the routing group through magpie's own wiring,
+// `magpie pi group/mbridge`; without Pi, magpie says so and init goes on.
+// The routing group, not a tier group: the extension routes a turn only when
+// Pi's model is group/mbridge (SP13), and a tier group would turn that off.
+// It also takes out the top-level "magpie": {"default": …}
 // an earlier router init put in models.json, which Pi never read.
 func routerInitPi() error {
 	dropStrayPiDefault(piModelsPath())
-	if err := magpieFor().SetAgentModel(context.Background(), "pi", "group/mb-balanced"); err != nil {
-		fmt.Println(muted.Render("  pi: " + err.Error() + " · after installing Pi: magpie pi group/mb-balanced"))
+	if err := magpieFor().SetAgentModel(context.Background(), "pi", "group/mbridge"); err != nil {
+		fmt.Println(muted.Render("  pi: " + err.Error() + " · after installing Pi: magpie pi group/mbridge"))
 		return nil
 	}
-	fmt.Println(green.Render("✓"), "pi → group/mb-balanced")
+	fmt.Println(green.Render("✓"), "pi → group/mbridge")
 	return nil
 }
 

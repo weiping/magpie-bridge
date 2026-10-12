@@ -182,8 +182,8 @@ func TestRouterInitWiresAgentsOverExistingSetup(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(codex, "mbridge.config.toml")); err != nil {
 		t.Fatalf("Codex profile not written: %v", err)
 	}
-	if !f.called("pi", "group/mb-balanced") {
-		t.Fatalf("Pi not pointed at group/mb-balanced: %v", f.calls)
+	if !f.called("pi", "group/mbridge") {
+		t.Fatalf("Pi not pointed at group/mbridge: %v", f.calls)
 	}
 }
 
@@ -343,8 +343,9 @@ func TestRouterInitFrontierWithOnlyFastServed(t *testing.T) {
 	}
 }
 
-// router init points Pi at the balanced tier through magpie's own wiring
-// (`magpie pi group/mb-balanced`), and takes out the top-level
+// router init points Pi at the routing group through magpie's own wiring
+// (`magpie pi group/mbridge`; SP13: a tier group would switch routing off),
+// and takes out the top-level
 // "magpie": {"default": …} an earlier router init wrote into models.json.
 func TestRouterInitPiUsesMagpieAgentCommand(t *testing.T) {
 	f := routerHome(t)
@@ -354,8 +355,11 @@ func TestRouterInitPiUsesMagpieAgentCommand(t *testing.T) {
 	if _, err := captureStdout(t, routerInitPi); err != nil {
 		t.Fatal(err)
 	}
-	if !f.called("pi", "group/mb-balanced") {
+	if !f.called("pi", "group/mbridge") {
 		t.Fatalf("calls %v", f.calls)
+	}
+	if f.called("pi", "group/mb-balanced") {
+		t.Fatalf("Pi pointed at a tier group, which routes nothing: %v", f.calls)
 	}
 	b, _ := os.ReadFile(filepath.Join(dir, "models.json"))
 	if strings.Contains(string(b), `"default"`) {
