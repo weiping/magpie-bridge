@@ -25,7 +25,15 @@ mbridge gateway's classifier.
 - On a routed turn, reports tool-call stats and PR links from Bash output.
   Leaving `group/mbridge` with `/model` is reported once as a manual switch.
 
-**Routing is decided per turn by the model alone.** Claude Code merges its
+**Routing requires magpie gateway as `ANTHROPIC_BASE_URL`.** The plugin checks
+`ANTHROPIC_BASE_URL` (via `$.env.get`): if it is not configured to point to a
+magpie gateway (unset, empty, or official `api.anthropic.com`), the plugin stays
+completely silent — requests are not forwarded to mbridge, and any default model
+set to an mbridge routing group (`group/mbridge` or `group/mb-*`) falls back to
+the native `default` model rather than sending an unsupported group name to
+Anthropic's official API.
+
+**When magpie is configured, routing is decided per turn by the model.** Claude Code merges its
 settings (`--model`, `/model`, the project's `.claude/settings.json`, the
 user's `~/.claude/settings.json`), and the plugin reads only the result. Set
 `"model": "group/mbridge[1m]"` in a project to route it, or any other model

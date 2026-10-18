@@ -47,6 +47,31 @@ function fnv1a(s: string): string {
   return (h >>> 0).toString(16)
 }
 
+/**
+ * Checks whether ANTHROPIC_BASE_URL is configured to point to a magpie gateway.
+ * When not set, empty, or pointing to official Anthropic (native configuration),
+ * requests must not forward to mbridge and default model must not be set to
+ * mbridge model groups.
+ */
+export async function isMagpieGateway($: any): Promise<boolean> {
+  let url: string | undefined
+  try {
+    const v = await $.env.get('ANTHROPIC_BASE_URL')
+    if (typeof v === 'string') url = v
+  } catch {
+    url = undefined
+  }
+  if (!url || url.trim() === '') return false
+  try {
+    const raw = url.trim()
+    const parsed = new URL(raw.includes('://') ? raw : `http://${raw}`)
+    const host = parsed.hostname.toLowerCase()
+    return host !== 'api.anthropic.com' && !host.endsWith('.anthropic.com')
+  } catch {
+    return false
+  }
+}
+
 type SessionMessageLite = { role: 'user' | 'assistant'; text: string }
 
 async function firstUserHash($: any): Promise<string | null> {
@@ -147,6 +172,13 @@ async function decideMain($: any, gateway: string, text: string, turnId: string)
     }
   } else {
     await update($, stTurn, () => null)
+    // SP14: mbridge is not reachable, but the turn is on group/mbridge;
+    // the user is on a magpie model — tell them the gateway is down
+    try {
+      await $.ui.status('mbridge: 未运行')
+    } catch {
+      // ui.status refused; nothing more to do
+    }
   }
   // reported (or failed reporting): start the next turn from zero
   await update($, stToolStats, () => ({ calls: 0, failures: 0 }))
@@ -157,6 +189,8 @@ export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
     if (typeof e.cwd === 'string' && e.cwd !== '') await update($, stCwd, () => e.cwd)
+    // When BASE_URL is not magpie gateway, stay quiet: do not probe or show status
+    if (!(await isMagpieGateway($))) return next(e)
     // one reachability probe, which also learns the turn budget (SP10);
     // being down changes nothing else
     if ((await learnBudget($, gateway)) === null) {
@@ -172,12 +206,14 @@ export const register: Register = (on, options) => {
   // /fork and /branch both report source "fork" (S11); /clear, /resume and
   // /branch reset $.state and this refires, so re-mark on every event
   on('classic.SessionStart', async ($, e, next) => {
+    if (!(await isMagpieGateway($))) return next(e)
     await update($, stDerived, () => ({ is: e.source === 'fork', checked: false }))
     return next(e)
   })
 
   // plan detection (S1's proven read); empty-text turns keep the last value
   on('classic.UserPromptSubmit', async ($, e, next) => {
+    if (!(await isMagpieGateway($))) return next(e)
     await update($, stPlanMode, () => e.permission_mode === 'plan')
     return next(e)
   })
@@ -186,6 +222,7 @@ export const register: Register = (on, options) => {
   // what the last turn decided, and leaves the asking to the first main
   // turn.step, where the model is known.
   on('turn.start', async ($, e, next) => {
+    if (!(await isMagpieGateway($))) return next(e)
     if (e.text !== '') {
       await update($, stPrompt, () => e.text)
       await update($, stPending, () => ({ turnId: e.turnId, text: e.text }))
@@ -196,6 +233,7 @@ export const register: Register = (on, options) => {
 
   on('tool.call', async ($, e, next) => {
     const r = await next(e)
+    if (!(await isMagpieGateway($))) return r
     // SP13: stats and PR links go to mbridge only on a turn it routes
     if (e.agentId === undefined && (await read($, stMode)) === 'on') {
       // the engine hands a failed call's flags over at the top level in a
@@ -221,6 +259,7 @@ export const register: Register = (on, options) => {
   })
 
   on('classic.PostModelSwitch', async ($, e, next) => {
+    if (!(await isMagpieGateway($))) return next(e)
     // SP13: only leaving group/mbridge is a manual switch worth reporting
     if ((e.source === 'command' || e.source === 'picker') && isRouted(String(e.from_model ?? ''))) {
       await post($, gateway, '/v1/bridge/feedback', {
@@ -233,6 +272,12 @@ export const register: Register = (on, options) => {
   })
 
   on('agent.spawn', async ($, e, next) => {
+    if (!(await isMagpieGateway($))) {
+      if (typeof e.model === 'string' && (splitSuffix(e.model).base === ROUTING_GROUP || splitSuffix(e.model).base.startsWith('group/'))) {
+        return next({ ...e, model: 'default' + splitSuffix(e.model).suffix })
+      }
+      return next(e)
+    }
     // 1. fork: dead branch on CC 2.1.288+ — no fork subagent type exists
     //    (S3); kept for the day one does. Forks inherit the parent model.
     // 2. a model Claude already chose is respected.
@@ -257,6 +302,7 @@ export const register: Register = (on, options) => {
   })
 
   on('turn.complete', async ($, e, next) => {
+    if (!(await isMagpieGateway($))) return next(e)
     // SP11: keep the main session's final answer for the next /turn. A main
     // turn that ends without one (interrupted, refused, an API error) clears
     // it: the answer before is not what the user now points at.
@@ -316,6 +362,19 @@ export const register: Register = (on, options) => {
   })
 
   on('turn.step', async function* ($, e, next) {
+    if (!(await isMagpieGateway($))) {
+      if (e.agentId === undefined) {
+        await update($, stMode, () => 'off')
+      }
+      const { base, suffix } = splitSuffix(e.model)
+      if (base === ROUTING_GROUP || base.startsWith('group/')) {
+        // When BASE_URL is not magpie gateway, do not forward to mbridge,
+        // and default model is not set to mbridge model group (fallback to default)
+        return yield* next({ ...e, model: 'default' + suffix })
+      }
+      return yield* next(e)
+    }
+
     // magpie names the group "group/mbridge[1m]" for a 1M window: compare
     // without the "[…]" suffix and keep it on the rewrite (the engine drops
     // it from the request and sends the 1M beta — checked on CC 2.1.296)

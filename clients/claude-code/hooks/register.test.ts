@@ -22,6 +22,14 @@ async function startTurn($: any, turnId: string, text: string, model = 'group/mb
   await runStep($, model, undefined, turnId)
 }
 
+// Helpers to mock ANTHROPIC_BASE_URL pointing to magpie gateway
+function mockMagpieEnv(on: any, baseUrl = 'http://127.0.0.1:3425') {
+  on('env.get', (_$: unknown, e: { name: string }) => {
+    if (e.name === 'ANTHROPIC_BASE_URL') return { value: baseUrl }
+    return { value: undefined }
+  })
+}
+
 // A fake gateway: every $.http.fetch lands here with its url and body.
 function fakeGateway(on: any, turns: Array<{ tier: string; group: string; reason: string }>) {
   const calls: Array<{ url: string; method?: string; body?: string }> = []
@@ -44,6 +52,7 @@ function fakeGateway(on: any, turns: Array<{ tier: string; group: string; reason
 
 function stubBasics(on: any) {
   const status: string[] = []
+  mockMagpieEnv(on)
   on('session.id', () => ({ value: 's-1' }))
   on('ui.status', (_$: unknown, e: { text: string }) => {
     status.push(e.text)
@@ -176,6 +185,7 @@ test('the 1500ms timer wins the race when /turn hangs', async ($, on) => {
   const { status } = stubBasics(on)
   void release
   const clock = mock.clock(on)
+  on('session.start', () => ({ cwd: '/work/repo' }))
   on('turn.start', (_$: unknown, e: { turnId: string }) => ({ turnId: e.turnId }))
   const seen: string[] = []
   on('turn.step', async function* (_$: unknown, e: { turnId: string; index: number; model: string }) {
@@ -183,6 +193,7 @@ test('the 1500ms timer wins the race when /turn hangs', async ($, on) => {
     return { turnId: e.turnId, index: e.index, answer: 'ok', toolUses: [], stopReason: 'end_turn', usage: null }
   })
 
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work/repo' })
   const started = $.turn.start({ turnId: 't1', text: 'hello' })
   await clock.advance(1600)
   await started
@@ -191,7 +202,8 @@ test('the 1500ms timer wins the race when /turn hangs', async ($, on) => {
   while (step.done !== true) step = await stream.next()
 
   expect(seen).toEqual(['group/mbridge'])
-  expect(status.filter((s) => s.includes('mbridge:')).length).toBe(0)
+  // SP14: the gateway is unreachable; decideMain now surfaces that to the UI
+  expect(status).toContain('mbridge: 未运行')
 })
 
 // SP10: mbridge says at session.start how long a turn may take; a /turn
@@ -199,6 +211,7 @@ test('the 1500ms timer wins the race when /turn hangs', async ($, on) => {
 // answers when the test releases it, after moving the clock on.
 function slowGateway(on: any, routerText: string) {
   let release = () => {}
+  mockMagpieEnv(on)
   on('http.fetch', async (_$: unknown, e: { url: string }) => {
     if (e.url.endsWith('/v1/bridge/router')) return { value: { status: 200, ok: true, headers: {}, text: routerText } }
     if (e.url.endsWith('/v1/bridge/turn')) {
@@ -293,7 +306,7 @@ test('session.start with the gateway up stays quiet', async ($, on) => {
   expect(status).toEqual([])
 })
 
-test('session.start with the gateway down reports it once', async ($, on) => {
+test('session.start with the gateway down reports it once when magpie is configured', async ($, on) => {
   const { status } = stubBasics(on)
   mock.clock(on)
   on('session.start', () => ({ cwd: '/work/repo' }))
@@ -303,9 +316,26 @@ test('session.start with the gateway down reports it once', async ($, on) => {
   expect(status).toEqual(['mbridge: 未运行'])
 })
 
+test('session.start with native configuration (no magpie gateway) stays quiet', async ($, on) => {
+  const status: string[] = []
+  on('session.id', () => ({ value: 's-1' }))
+  on('env.get', () => ({ value: undefined }))
+  on('ui.status', (_$: unknown, e: { text: string }) => {
+    status.push(e.text)
+    return { value: undefined }
+  })
+  mock.clock(on)
+  on('session.start', () => ({ cwd: '/work/repo' }))
+  on('http.fetch', () => ({ deny: 'down' }))
+
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work/repo' })
+  expect(status).toEqual([])
+})
+
 // ---- Task 3: subagents ----
 
 function spawnBasics(on: any) {
+  mockMagpieEnv(on)
   on('session.id', () => ({ value: 's-1' }))
   on('ui.status', () => ({ value: undefined }))
   mock.clock(on)
@@ -966,4 +996,110 @@ test('a /turn failure on group/mbridge still leaves the step on the routing grou
   await $.turn.start({ turnId: 't1', text: 'hello' })
   await runStep($, 'group/mbridge')
   expect(seen).toEqual(['main:group/mbridge'])
+})
+
+// ---- When ANTHROPIC_BASE_URL is not magpie gateway (native configuration) ----
+
+function nativeEnvBasics(on: any, baseUrl?: string) {
+  const calls: Array<{ url: string; method?: string; body?: string }> = []
+  const status: string[] = []
+  on('session.id', () => ({ value: 's-1' }))
+  on('env.get', (_$: unknown, e: { name: string }) => {
+    if (e.name === 'ANTHROPIC_BASE_URL') return { value: baseUrl }
+    return { value: undefined }
+  })
+  on('ui.status', (_$: unknown, e: { text: string }) => {
+    status.push(e.text)
+    return { value: undefined }
+  })
+  on('http.fetch', (_$: unknown, e: { url: string; init?: { method?: string; body?: string } }) => {
+    calls.push({ url: e.url, method: e.init?.method, body: e.init?.body })
+    return { value: { status: 200, ok: true, headers: {}, text: '{}' } }
+  })
+  on('turn.start', (_$: unknown, e: { turnId: string }) => ({ turnId: e.turnId }))
+  return { calls, status }
+}
+
+test('when BASE_URL is not magpie gateway, turn.step does not forward to mbridge and group/mbridge is rewritten to default', async ($, on) => {
+  const { calls, status } = nativeEnvBasics(on, undefined) // no ANTHROPIC_BASE_URL
+  const seen = engineSeen(on)
+
+  await $.turn.start({ turnId: 't1', text: 'help me with code' })
+  await runStep($, 'group/mbridge')
+  await runStep($, 'group/mbridge[1m]')
+
+  // Does not forward to mbridge
+  expect(turnCalls(calls).length).toBe(0)
+  expect(status).toEqual([])
+  // Default model is not set to mbridge model group, rewrites to native default
+  expect(seen).toEqual(['main:default', 'main:default[1m]'])
+})
+
+test('when BASE_URL is not magpie gateway, routing groups like group/mb-fast rewrite to default', async ($, on) => {
+  const { calls, status } = nativeEnvBasics(on, '') // empty ANTHROPIC_BASE_URL
+  const seen = engineSeen(on)
+
+  await $.turn.start({ turnId: 't1', text: 'help me with code' })
+  await runStep($, 'group/mb-fast')
+  await runStep($, 'group/mb-perf[1m]')
+
+  expect(turnCalls(calls).length).toBe(0)
+  expect(status).toEqual([])
+  expect(seen).toEqual(['main:default', 'main:default[1m]'])
+})
+
+test('when BASE_URL is not magpie gateway, native models pass through unchanged', async ($, on) => {
+  const { calls, status } = nativeEnvBasics(on, undefined)
+  const seen = engineSeen(on)
+
+  await $.turn.start({ turnId: 't1', text: 'help me with code' })
+  await runStep($, 'claude-sonnet-5')
+  await runStep($, 'opus')
+
+  expect(turnCalls(calls).length).toBe(0)
+  expect(status).toEqual([])
+  expect(seen).toEqual(['main:claude-sonnet-5', 'main:opus'])
+})
+
+test('when BASE_URL points to official Anthropic API, it does not forward to mbridge and rewrites to default', async ($, on) => {
+  const { calls, status } = nativeEnvBasics(on, 'https://api.anthropic.com/v1')
+  const seen = engineSeen(on)
+
+  await $.turn.start({ turnId: 't1', text: 'what is this?' })
+  await runStep($, 'group/mbridge')
+
+  expect(turnCalls(calls).length).toBe(0)
+  expect(status).toEqual([])
+  expect(seen).toEqual(['main:default'])
+})
+
+test('when BASE_URL is not magpie gateway, agent.spawn rewrites routing group models to default and asks no gateway', async ($, on) => {
+  const { calls } = nativeEnvBasics(on, undefined)
+  const models: Array<string | undefined> = []
+  on('agent.spawn', (_$: unknown, e: { prompt: string; subagentType: string; model?: string }) => {
+    models.push(e.model)
+    return { model: e.model ?? 'inherited', agentId: 'a0' }
+  })
+
+  await $.agent.spawn({ prompt: 'find it', subagentType: 'Explore', model: 'group/mb-fast' })
+  await $.agent.spawn({ prompt: 'find it', subagentType: 'Explore' })
+
+  expect(turnCalls(calls).length).toBe(0)
+  // group/mb-fast rewritten to default, unpinned passes through
+  expect(models).toEqual(['default', undefined])
+})
+
+test('when BASE_URL is not magpie gateway, feedback, tools and reviews stay completely silent', async ($, on) => {
+  const { calls } = nativeEnvBasics(on, undefined)
+  on('tool.call', () => ({ result: { text: 'Opened: https://github.com/weiping/magpie-bridge/pull/6' } }))
+  on('classic.PostModelSwitch', () => ({}))
+  on('turn.complete', () => ({ text: '' }))
+  const sw = (from: string, to: string) => $.classic.PostModelSwitch({ from_model: from, to_model: to, source: 'command' })
+
+  await $.turn.start({ turnId: 't1', text: 'run tool' })
+  await $.tool.call({ tool: 'Bash', command: 'gh pr create', agentId: undefined })
+  await sw('group/mbridge', 'claude-sonnet-5')
+  await $.turn.complete({ turnId: 't1', answer: 'done', durationMs: 10, isAborted: false, usage: null })
+
+  expect(calls.length).toBe(0)
 })
