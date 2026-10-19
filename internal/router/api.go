@@ -125,13 +125,16 @@ func (d *Deps) Decide(ctx context.Context, in DecideInput) Decided {
 	}
 	sinceLast := d.Sessions.SinceLast(in.Key)
 
-	// Classify only when the policy would use it: R1 (fixed agent) and
-	// R2 (plan mode) decide without one.
+	// Classify only when the policy would use it: R1 (fixed agent),
+	// R2 (plan mode), and direct compaction commands/prompts decide without one.
 	_, fixed := pc.FixedAgents[in.Agent]
 	var classified *Verdict
 	var classifyErr string
 	source := "default"
-	if !fixed && !in.PlanMode && d.Classify != nil && in.Prompt != "" {
+	isDirectCompact := IsCompactPrompt(in.Prompt)
+	if isDirectCompact {
+		source = "rule"
+	} else if !fixed && !in.PlanMode && d.Classify != nil && in.Prompt != "" {
 		q := Question{
 			Message:        in.Prompt,
 			PreviousTier:   "",
@@ -170,6 +173,7 @@ func (d *Deps) Decide(ctx context.Context, in DecideInput) Decided {
 		Agent:        in.Agent,
 		Review:       review,
 		PlanMode:     in.PlanMode,
+		IsCompact:    isDirectCompact,
 		Classified:   classified,
 		Prev:         prev,
 		ToolCalls:    calls,
@@ -213,6 +217,10 @@ func (d *Deps) Decide(ctx context.Context, in DecideInput) Decided {
 		if prev != nil {
 			v := classified.Dissatisfied
 			ev.Dissatisfied = &v
+		}
+		if classified.Compact > 0 {
+			cmp := classified.Compact
+			ev.Compact = &cmp
 		}
 	}
 	if review != nil {

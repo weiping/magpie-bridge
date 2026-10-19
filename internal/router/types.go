@@ -14,6 +14,7 @@ type Verdict struct {
 	Tier           Tier
 	TierConfidence float64 // 0–1
 	Dissatisfied   float64 // noul 0–1
+	Compact        float64 // noul 0–1; probability message is a context compaction request
 	// Source names the model that gave the scores, with "#plain" when the
 	// fallback prompt was used (SP7 §4), e.g. "typesafe/jev-latest" or
 	// "deepseek/deepseek-flash#plain".
@@ -29,6 +30,7 @@ type TurnState struct {
 type PolicyInput struct {
 	Agent        string // "main" | "gateway" | subagent type
 	PlanMode     bool
+	IsCompact    bool       // true when direct command/prompt matches context compaction
 	Classified   *Verdict   // nil = classify failed/timed out
 	Prev         *TurnState // nil = first round
 	ToolFailures int
@@ -53,6 +55,7 @@ type PolicyConfig struct {
 	DissatisfiedMin float64
 	ReviewMin       float64
 	ReviewConfMin   float64
+	CompactMin      float64
 	ReviewMode      string
 	EscalateTurns   int
 	CacheTTL        time.Duration

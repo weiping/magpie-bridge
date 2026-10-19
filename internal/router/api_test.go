@@ -329,6 +329,68 @@ func TestDecideFixedAgentSkipsClassifier(t *testing.T) {
 	}
 }
 
+func TestDecideCompactionDirectPrompt(t *testing.T) {
+	d, fc, _ := testDeps(t, nil)
+	// session currently in fast tier
+	d.Sessions.Commit("s1", TurnState{Tier: TierFast})
+
+	// /compact command: skips classifier and escalates to balanced
+	res := d.Decide(context.Background(), DecideInput{
+		Session: "s1", Key: "s1", Agent: "main", Prompt: "/compact keep important context",
+	})
+	if res.Tier != TierBalanced || res.Reason != "R9-compact" || res.Source != "rule" {
+		t.Fatalf("direct /compact: %+v", res)
+	}
+	if len(fc.questions) != 0 {
+		t.Fatalf("classifier asked on direct /compact: %d", len(fc.questions))
+	}
+
+	// Claude Code auto-compact prompt: escalates from fast to balanced
+	res = d.Decide(context.Background(), DecideInput{
+		Session: "s1", Key: "s1", Agent: "main",
+		Prompt: "Summarize the transcript inside <summary></summary> tags. Include relevant information...",
+	})
+	if res.Tier != TierBalanced || res.Reason != "R9-compact" || res.Source != "rule" {
+		t.Fatalf("claude autocompact: %+v", res)
+	}
+
+	// Already at performance: compaction stays at performance
+	d.Sessions.Commit("s2", TurnState{Tier: TierPerformance})
+	res = d.Decide(context.Background(), DecideInput{
+		Session: "s2", Key: "s2", Agent: "main", Prompt: "/compact",
+	})
+	if res.Tier != TierPerformance || res.Reason != "R9-compact" {
+		t.Fatalf("compact on performance: %+v", res)
+	}
+
+	// Already at balanced: compaction stays at balanced
+	d.Sessions.Commit("s3", TurnState{Tier: TierBalanced})
+	res = d.Decide(context.Background(), DecideInput{
+		Session: "s3", Key: "s3", Agent: "main", Prompt: "/compact",
+	})
+	if res.Tier != TierBalanced || res.Reason != "R9-compact" {
+		t.Fatalf("compact on balanced: %+v", res)
+	}
+}
+
+func TestDecideCompactionJevScore(t *testing.T) {
+	// Jev classifies natural language compaction intent with high confidence
+	d, _, _ := testDeps(t, &Verdict{
+		Tier:           TierFast,
+		TierConfidence: 0.9,
+		Compact:        0.88,
+		Source:         "typesafe/jev-latest",
+	})
+	d.Sessions.Commit("s1", TurnState{Tier: TierFast})
+
+	res := d.Decide(context.Background(), DecideInput{
+		Session: "s1", Key: "s1", Agent: "main", Prompt: "please reduce the conversation context",
+	})
+	if res.Tier != TierBalanced || res.Reason != "R9-compact" || res.Source != "llm" {
+		t.Fatalf("jev compaction: %+v", res)
+	}
+}
+
 func TestPromptHashNormalization(t *testing.T) {
 	a := PromptHash("<system-reminder>Codebase context</system-reminder>\nhello\r\nworld  ")
 	b := PromptHash("hello\nworld")

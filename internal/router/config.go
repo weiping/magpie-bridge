@@ -24,6 +24,7 @@ type Thresholds struct {
 	DissatisfiedMin     float64             `json:"dissatisfied_min"`
 	ReviewMin           float64             `json:"review_min"`
 	ReviewConfidenceMin float64             `json:"review_confidence_min"`
+	CompactMin          float64             `json:"compact_min,omitempty"`
 	Overrides           []ThresholdOverride `json:"overrides,omitempty"`
 }
 
@@ -37,6 +38,7 @@ type ThresholdOverride struct {
 	DissatisfiedMin     *float64 `json:"dissatisfied_min,omitempty"`
 	ReviewMin           *float64 `json:"review_min,omitempty"`
 	ReviewConfidenceMin *float64 `json:"review_confidence_min,omitempty"`
+	CompactMin          *float64 `json:"compact_min,omitempty"`
 }
 
 // ReviewConfig is router.json's review section: the end-of-turn review's
@@ -134,6 +136,9 @@ func (c *Config) defaults() {
 	if c.Thresholds.ReviewConfidenceMin == 0 {
 		c.Thresholds.ReviewConfidenceMin = 0.5
 	}
+	if c.Thresholds.CompactMin == 0 {
+		c.Thresholds.CompactMin = 0.7
+	}
 	if c.Review.Mode == "" {
 		c.Review.Mode = ReviewOff
 	}
@@ -184,6 +189,7 @@ func (c Config) validate() error {
 	for name, v := range map[string]float64{
 		"tier_min": th.TierMin, "dissatisfied_min": th.DissatisfiedMin,
 		"review_min": th.ReviewMin, "review_confidence_min": th.ReviewConfidenceMin,
+		"compact_min": th.CompactMin,
 	} {
 		if v < 0 || v > 1 {
 			return fmt.Errorf("thresholds.%s %v out of [0,1]", name, v)
@@ -193,6 +199,7 @@ func (c Config) validate() error {
 		for name, v := range map[string]*float64{
 			"tier_min": o.TierMin, "dissatisfied_min": o.DissatisfiedMin,
 			"review_min": o.ReviewMin, "review_confidence_min": o.ReviewConfidenceMin,
+			"compact_min": o.CompactMin,
 		} {
 			if v != nil && (*v < 0 || *v > 1) {
 				return fmt.Errorf("thresholds.overrides[%d].%s %v out of [0,1]", i, name, *v)
@@ -273,6 +280,7 @@ func (c Config) PolicyConfigFor(harness, agent string) PolicyConfig {
 		DissatisfiedMin: c.Thresholds.DissatisfiedMin,
 		ReviewMin:       c.Thresholds.ReviewMin,
 		ReviewConfMin:   c.Thresholds.ReviewConfidenceMin,
+		CompactMin:      c.Thresholds.CompactMin,
 		ReviewMode:      c.Review.Mode,
 		EscalateTurns:   c.EscalateTurns,
 		CacheTTL:        time.Duration(c.CacheTTLSeconds) * time.Second,
@@ -295,6 +303,9 @@ func (c Config) PolicyConfigFor(harness, agent string) PolicyConfig {
 		}
 		if o.ReviewConfidenceMin != nil {
 			pc.ReviewConfMin = *o.ReviewConfidenceMin
+		}
+		if o.CompactMin != nil {
+			pc.CompactMin = *o.CompactMin
 		}
 	}
 	for _, o := range c.Thresholds.Overrides {

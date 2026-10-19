@@ -61,6 +61,36 @@ func choose(in PolicyInput, cfg PolicyConfig) (Decision, bool) {
 	reviewHit := prev != nil && in.Review != nil &&
 		in.Review.Unresolved >= cfg.ReviewMin && in.Review.Confidence >= cfg.ReviewConfMin
 
+	// R9 compact: a context-compaction or summarization turn is heavy on
+	// comprehension but light on new reasoning, balanced fits it. The
+	// classifier asked or a direct prompt match flagged it; either way
+	// we want balanced, not fast, no matter what the previous tier was.
+	// The previous tier being balanced or performance is left alone.
+	compactMin := cfg.CompactMin
+	if compactMin == 0 {
+		compactMin = 0.7
+	}
+	isCompact := in.IsCompact || (in.Classified != nil && in.Classified.Compact > 0 && in.Classified.Compact >= compactMin)
+	if isCompact {
+		if prev != nil && prev.Tier == TierFast {
+			return Decision{
+				Tier:   TierBalanced,
+				Reason: "R9-compact",
+				Next:   TurnState{Tier: TierBalanced, EscalatedLeft: cfg.EscalateTurns},
+			}, reviewHit
+		}
+		// first turn, or already balanced/performance: hold, log R9-compact
+		tier := TierBalanced
+		if prev != nil {
+			tier = prev.Tier
+		}
+		return Decision{
+			Tier:   tier,
+			Reason: "R9-compact",
+			Next:   TurnState{Tier: tier},
+		}, reviewHit
+	}
+
 	if prev != nil {
 		// R3 escalate: (a) user dissatisfied, (b) at least half of >=3 tool
 		// calls failed, (c) the review says the last turn left it unresolved.

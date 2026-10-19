@@ -124,6 +124,9 @@ type jevReply struct {
 		Dissatisfied struct {
 			Noul float64 `json:"noul"`
 		} `json:"dissatisfied"`
+		Compact struct {
+			Noul float64 `json:"noul"`
+		} `json:"compact"`
 	} `json:"answers"`
 }
 
@@ -170,6 +173,10 @@ func (c *classifier) classifyJev(ctx context.Context, q Question) (*Verdict, err
 				Type:         "noul",
 				Instructions: dissatisfied,
 			},
+			"compact": {
+				Type:         "noul",
+				Instructions: "The `message` is asking to compact, summarize, or reduce the conversation context or history.",
+			},
 		},
 	})
 	if err != nil {
@@ -188,7 +195,11 @@ func (c *classifier) classifyJev(ctx context.Context, q Question) (*Verdict, err
 		Tier:           Tier(parsed.Answers.Tier.Choice),
 		TierConfidence: parsed.Answers.Tier.Confidence,
 		Dissatisfied:   parsed.Answers.Dissatisfied.Noul,
+		Compact:        parsed.Answers.Compact.Noul,
 		Source:         jevClassifier,
+	}
+	if v.Compact == 0 && IsCompactPrompt(q.Message) {
+		v.Compact = 1.0
 	}
 	switch v.Tier {
 	case TierFast, TierBalanced, TierPerformance:
@@ -355,10 +366,15 @@ func jsonString(s string) string {
 }
 
 func (c *classifier) classifyPlain(ctx context.Context, q Question) (*Verdict, error) {
+	var v *Verdict
+	var err error
 	if c.plainSchemaUsable() {
-		v, err := c.askPlainSchema(ctx, q)
+		v, err = c.askPlainSchema(ctx, q)
 		if err == nil {
 			c.clearSchemaBlame()
+			if IsCompactPrompt(q.Message) {
+				v.Compact = 1.0
+			}
 			return v, nil
 		}
 		// out of time says nothing about the schema, and leaves no time to
@@ -372,7 +388,11 @@ func (c *classifier) classifyPlain(ctx context.Context, q Question) (*Verdict, e
 			c.forbidPlainSchema() // 4xx and the like: it does not take one
 		}
 	}
-	return c.classifyPlainOld(ctx, q)
+	v, err = c.classifyPlainOld(ctx, q)
+	if err == nil && v != nil && IsCompactPrompt(q.Message) {
+		v.Compact = 1.0
+	}
+	return v, err
 }
 
 func (c *classifier) classifyPlainOld(ctx context.Context, q Question) (*Verdict, error) {

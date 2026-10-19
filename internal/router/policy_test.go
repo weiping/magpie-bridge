@@ -456,3 +456,95 @@ func TestR3SourcesKeepEscalateTurns(t *testing.T) {
 		t.Fatalf("EscalatedLeft = %d, want 2", d.Next.EscalatedLeft)
 	}
 }
+
+func TestR9Compact(t *testing.T) {
+	cfg := PolicyConfig{
+		DefaultTier:     TierBalanced,
+		TierMin:         0.5,
+		DissatisfiedMin: 0.7,
+		CompactMin:      0.7,
+		EscalateTurns:   2,
+	}
+
+	tests := []struct {
+		name       string
+		in         PolicyInput
+		wantTier   Tier
+		wantReason string
+	}{
+		{
+			name: "direct compact command escalates fast to balanced",
+			in: PolicyInput{
+				Agent:     "main",
+				IsCompact: true,
+				Prev:      state(TierFast, 0, 0),
+				Now:       time.Now(),
+			},
+			wantTier:   TierBalanced,
+			wantReason: "R9-compact",
+		},
+		{
+			name: "jev compact confidence >= 0.7 escalates fast to balanced",
+			in: PolicyInput{
+				Agent:      "main",
+				Classified: &Verdict{Tier: TierFast, TierConfidence: 0.9, Compact: 0.85},
+				Prev:       state(TierFast, 0, 0),
+				Now:        time.Now(),
+			},
+			wantTier:   TierBalanced,
+			wantReason: "R9-compact",
+		},
+		{
+			name: "compact on balanced stays balanced (not changed)",
+			in: PolicyInput{
+				Agent:     "main",
+				IsCompact: true,
+				Prev:      state(TierBalanced, 0, 0),
+				Now:       time.Now(),
+			},
+			wantTier:   TierBalanced,
+			wantReason: "R9-compact",
+		},
+		{
+			name: "compact on performance stays performance (not changed)",
+			in: PolicyInput{
+				Agent:     "main",
+				IsCompact: true,
+				Prev:      state(TierPerformance, 0, 0),
+				Now:       time.Now(),
+			},
+			wantTier:   TierPerformance,
+			wantReason: "R9-compact",
+		},
+		{
+			name: "compact on first round without prev chooses balanced",
+			in: PolicyInput{
+				Agent:     "main",
+				IsCompact: true,
+				Now:       time.Now(),
+			},
+			wantTier:   TierBalanced,
+			wantReason: "R9-compact",
+		},
+		{
+			name: "jev compact confidence below threshold does not trigger compact rule",
+			in: PolicyInput{
+				Agent:      "main",
+				Classified: &Verdict{Tier: TierFast, TierConfidence: 0.9, Compact: 0.3},
+				Prev:       state(TierFast, 0, 0),
+				Now:        time.Now(),
+			},
+			wantTier:   TierFast,
+			wantReason: "R6-adopt",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := Choose(tt.in, cfg)
+			if d.Tier != tt.wantTier || d.Reason != tt.wantReason {
+				t.Fatalf("got tier=%s reason=%s, want tier=%s reason=%s", d.Tier, d.Reason, tt.wantTier, tt.wantReason)
+			}
+		})
+	}
+}

@@ -33,6 +33,7 @@ type Event struct {
 	ClassifiedTier   Tier     `json:"classified_tier,omitempty"`
 	TierConfidence   *float64 `json:"tier_confidence,omitempty"`
 	Dissatisfied     *float64 `json:"dissatisfied,omitempty"`
+	Compact          *float64 `json:"compact,omitempty"`
 	WouldReview      bool     `json:"would_review,omitempty"`
 	Unresolved       *float64 `json:"unresolved,omitempty"`
 	ReviewConfidence *float64 `json:"review_confidence,omitempty"`
