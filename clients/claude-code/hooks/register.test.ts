@@ -998,6 +998,38 @@ test('a /turn failure on group/mbridge still leaves the step on the routing grou
   expect(seen).toEqual(['main:group/mbridge'])
 })
 
+test('an internal turn (compaction) on a fast session runs on balanced', async ($, on) => {
+  const calls = fakeGateway(on, [{ tier: 'fast', group: 'group/mb-fast', reason: 'R5' }])
+  stubBasics(on)
+  mock.clock(on)
+  on('turn.start', (_$: unknown, e: { turnId: string }) => ({ turnId: e.turnId }))
+  const seen = engineSeen(on)
+
+  // a user turn routes to fast
+  await $.turn.start({ turnId: 't1', text: 'first turn' })
+  await runStep($, 'group/mbridge', undefined, 't1')
+  expect(seen).toEqual(['main:group/mb-fast'])
+
+  // an internal turn (compaction) skips turn.start and uses a fresh turnId:
+  // it escalates to balanced, with no /turn call and no status
+  await runStep($, 'group/mbridge', undefined, 't2')
+  expect(seen).toEqual(['main:group/mb-fast', 'main:group/mb-balanced'])
+  expect(turnCalls(calls).length).toBe(1) // only the user turn asked /turn
+})
+
+test('an internal turn on a balanced session stays balanced', async ($, on) => {
+  const calls = fakeGateway(on, [{ tier: 'balanced', group: 'group/mb-balanced', reason: 'R5' }])
+  stubBasics(on)
+  mock.clock(on)
+  on('turn.start', (_$: unknown, e: { turnId: string }) => ({ turnId: e.turnId }))
+  const seen = engineSeen(on)
+
+  await $.turn.start({ turnId: 't1', text: 'first turn' })
+  await runStep($, 'group/mbridge', undefined, 't1')
+  await runStep($, 'group/mbridge', undefined, 't2')
+  expect(seen).toEqual(['main:group/mb-balanced', 'main:group/mb-balanced'])
+})
+
 // ---- When ANTHROPIC_BASE_URL is not magpie gateway (native configuration) ----
 
 function nativeEnvBasics(on: any, baseUrl?: string) {

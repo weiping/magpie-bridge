@@ -33,6 +33,9 @@ declare module 'claude-code' {
       /** SP13: turn.start's words and id, held until the first main turn.step
        *  knows the model and asks (or does not ask) mbridge. */
       pending: { turnId: string; text: string } | null
+      /** The most recent user-initiated turn's id (every turn.start). A
+       *  turn.step whose id differs is an internal request (compaction). */
+      userTurnId: string | null
     }
   }
 }

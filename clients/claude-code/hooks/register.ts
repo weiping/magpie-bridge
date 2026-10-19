@@ -36,6 +36,10 @@ const stMode = atom({ plugin: 'magpie-bridge', key: 'mode' }, null as 'on' | 'of
 // SP13: turn.start leaves the turn's words and id here; the first main
 // turn.step, which knows the model, answers for them
 const stPending = atom({ plugin: 'magpie-bridge', key: 'pending' }, null as { turnId: string; text: string } | null)
+// the most recent user-initiated turn's id, set by every turn.start (even an
+// empty-text continuation). A turn.step whose id is not this one is an
+// internal request (compaction, title) that never went through turn.start.
+const stUserTurnId = atom({ plugin: 'magpie-bridge', key: 'userTurnId' }, null as string | null)
 
 // §5.8: the same hash on both the storing side and the looking-up side
 function fnv1a(s: string): string {
@@ -223,6 +227,7 @@ export const register: Register = (on, options) => {
   // turn.step, where the model is known.
   on('turn.start', async ($, e, next) => {
     if (!(await isMagpieGateway($))) return next(e)
+    await update($, stUserTurnId, () => e.turnId)
     if (e.text !== '') {
       await update($, stPrompt, () => e.text)
       await update($, stPending, () => ({ turnId: e.turnId, text: e.text }))
@@ -393,6 +398,18 @@ export const register: Register = (on, options) => {
       }
     }
     if (base !== ROUTING_GROUP) return yield* next(e)
+    if (e.agentId === undefined) {
+      // Compaction: Claude Code's auto-compact summarization request is an
+      // internal turn — it skips turn.start and goes straight to turn.step
+      // with a fresh turnId. It is heavy comprehension work, so it runs on
+      // balanced whatever the last user turn used.
+      const pending = await read($, stPending)
+      const turn = await read($, stTurn)
+      const userTurnId = await read($, stUserTurnId)
+      if (pending === null && turn !== null && userTurnId !== e.turnId && (await read($, stMode)) === 'on') {
+        return yield* next({ ...e, model: tierGroup('balanced') + suffix })
+      }
+    }
     if (e.agentId !== undefined) {
       // an agent that inherited the main model pins to the main tier at
       // first sight and never follows the main session's later moves
