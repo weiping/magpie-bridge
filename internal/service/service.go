@@ -60,7 +60,7 @@ func Unit(goos, home, configDir, exe string) (path string, content []byte) {
 func UnitFor(goos, home, configDir, exe, user string) (path string, content []byte) {
 	switch goos {
 	case "darwin":
-		return filepath.Join(home, "Library", "LaunchAgents", Label+".plist"), []byte(fmt.Sprintf(plist, Label, xmlEscape(exe)))
+		return filepath.Join(home, "Library", "LaunchAgents", Label+".plist"), []byte(fmt.Sprintf(plist, Label, xmlEscape(exe), xmlEscape(home)))
 	case "windows":
 		uid := ""
 		if user != "" {
@@ -83,6 +83,11 @@ const plist = `<?xml version="1.0" encoding="UTF-8"?>
 		<string>%s</string>
 		<string>serve</string>
 	</array>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>HOME</key>
+		<string>%s</string>
+	</dict>
 	<key>RunAtLoad</key>
 	<true/>
 	<key>KeepAlive</key>

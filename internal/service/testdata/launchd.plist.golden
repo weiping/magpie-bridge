@@ -9,6 +9,11 @@
 		<string>/opt/q/mbridge</string>
 		<string>serve</string>
 	</array>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>HOME</key>
+		<string>/home/u</string>
+	</dict>
 	<key>RunAtLoad</key>
 	<true/>
 	<key>KeepAlive</key>
