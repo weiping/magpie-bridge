@@ -198,7 +198,7 @@ describe("mbridge extension", () => {
     const f = fakePi()
     ;(await import("../extensions/mbridge.js")).default(f.pi as never)
     expect(f.registered().sort()).toEqual(
-      ["agent_end", "before_agent_start", "before_provider_headers", "model_select", "session_start", "tool_call", "tool_result"].sort(),
+      ["agent_end", "before_agent_start", "before_provider_headers", "model_select", "session_before_compact", "session_start", "tool_call", "tool_result"].sort(),
     )
   })
 
@@ -343,6 +343,43 @@ describe("mbridge extension", () => {
     // restore (a resumed session reloading its model) is neither
     f.fire("model_select", { type: "model_select", source: "restore", model: { id: "x/y" }, previousModel: undefined })
     expect(bodies(fetchMock, "/v1/bridge/feedback").length).toBe(1)
+  })
+
+  it("session_before_compact escalates from fast tier to balanced", async () => {
+    const f = fakePi()
+    ;(await import("../extensions/mbridge.js")).default(f.pi as never)
+    f.fire("session_start", { type: "session_start", reason: "startup" })
+    gw(fetchMock, [{ tier: "fast", group: "group/mb-fast" }])
+    await f.fire("before_agent_start", { type: "before_agent_start", prompt: "first turn fast" })
+    expect(f.state.setModelCalls).toEqual(["magpie/group/mb-fast"])
+
+    // session_before_compact fires: escalates to balanced
+    await f.fire("session_before_compact", { type: "session_before_compact", source: "threshold" })
+    expect(f.state.setModelCalls).toEqual(["magpie/group/mb-fast", "magpie/group/mb-balanced"])
+  })
+
+  it("session_before_compact leaves balanced tier unchanged", async () => {
+    const f = fakePi()
+    ;(await import("../extensions/mbridge.js")).default(f.pi as never)
+    f.fire("session_start", { type: "session_start", reason: "startup" })
+    gw(fetchMock, [{ tier: "balanced", group: "group/mb-balanced" }])
+    await f.fire("before_agent_start", { type: "before_agent_start", prompt: "first turn balanced" })
+    expect(f.state.setModelCalls).toEqual(["magpie/group/mb-balanced"])
+
+    // session_before_compact fires: already balanced, no new setModel
+    await f.fire("session_before_compact", { type: "session_before_compact", source: "threshold" })
+    expect(f.state.setModelCalls).toEqual(["magpie/group/mb-balanced"])
+  })
+
+  it("session_before_compact does nothing when not routed", async () => {
+    const f = fakePi()
+    f.state.model = { provider: "anthropic", id: "claude-3-7-sonnet" }
+    ;(await import("../extensions/mbridge.js")).default(f.pi as never)
+    f.fire("session_start", { type: "session_start", reason: "startup" })
+    await f.fire("before_agent_start", { type: "before_agent_start", prompt: "native turn" })
+
+    await f.fire("session_before_compact", { type: "session_before_compact", source: "manual" })
+    expect(f.state.setModelCalls).toEqual([])
   })
 })
 

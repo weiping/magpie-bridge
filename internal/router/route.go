@@ -107,9 +107,13 @@ func (r *Router) Route(ctx context.Context, h http.Header, body []byte, req *wir
 	if harness == "" {
 		harness = "gateway"
 	}
+	prompt := wire.UserText(req)
+	if CodexRequestKind(h, body) == "compaction" && !IsCompactPrompt(prompt) {
+		prompt = "compaction_trigger"
+	}
 	res := r.deps.Decide(ctx, DecideInput{
 		Session: session, Key: key, Harness: harness, Agent: "gateway",
-		Prompt: wire.UserText(req), TurnID: turnID, FirstWords: words,
+		Prompt: prompt, TurnID: turnID, FirstWords: words,
 		PreviousAnswer: wire.PreviousAnswer(req), // SP11
 	})
 	r.hold(key, turn, string(res.Tier))

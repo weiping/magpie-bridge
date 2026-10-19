@@ -120,6 +120,22 @@ export default function (pi: ExtensionAPI): void {
     event.headers["X-Magpie-Session"] = session
   })
 
+  // Compaction escalation: when compaction begins, if current tier is fast,
+  // escalate immediately to balanced; if already balanced or performance, keep it.
+  pi.on("session_before_compact", async (_event, ctx: ExtensionContext) => {
+    if (!routed || session === "") return
+    if (lastTier === "fast") {
+      const target =
+        ctx.modelRegistry.find(PROVIDER, "group/mb-balanced") ??
+        ctx.modelRegistry.find(PROVIDER, "mb-balanced")
+      if (target !== undefined) {
+        lastAutoModel = modelKey(target)
+        lastTier = "balanced"
+        await pi.setModel(target)
+      }
+    }
+  })
+
   pi.on("before_agent_start", async (event, ctx: ExtensionContext) => {
     const prompt = event.prompt ?? ""
     if (prompt === "" || session === "") return

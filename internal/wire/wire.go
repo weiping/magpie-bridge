@@ -276,6 +276,8 @@ func parseResponses(body []byte) (*Request, error) {
 			}
 		case it.Type == "function_call", it.Type == "custom_tool_call", it.Type == "tool_search_call":
 			r.Messages = append(r.Messages, Message{Role: "assistant", Parts: []Part{{Kind: ToolCall}}})
+		case it.Type == "compaction_trigger":
+			r.Messages = append(r.Messages, Message{Role: "user", Parts: []Part{{Kind: Text, Text: "compaction_trigger"}}})
 		case it.Type == "tool_search_output", it.Type == "function_call_output", it.Type == "custom_tool_call_output":
 			r.Messages = append(r.Messages, Message{Role: "user", Parts: []Part{{Kind: ToolResult}}})
 		case it.Type == "reasoning":

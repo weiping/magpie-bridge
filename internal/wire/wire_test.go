@@ -184,3 +184,23 @@ func TestUserTextStripsCodexEnvironmentContext(t *testing.T) {
 		}
 	}
 }
+
+// A Codex compaction request ends in a compaction_trigger item; the wire
+// parser turns it into a user message whose text is "compaction_trigger" so
+// the router's IsCompactPrompt can see it.
+func TestCompactionTriggerBecomesUserText(t *testing.T) {
+	r, err := wire.Parse(wire.Responses, []byte(`{"model":"group/mbridge","input":[
+		{"type":"message","role":"user","content":[{"type":"input_text","text":"fix the login bug"}]},
+		{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]},
+		{"type":"compaction_trigger"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := wire.UserText(r); got != "compaction_trigger" {
+		t.Fatalf("UserText = %q, want compaction_trigger", got)
+	}
+	// the first words still come from the user's own turn, not the trigger
+	if got := wire.FirstWords(r); got == "" {
+		t.Fatalf("FirstWords empty")
+	}
+}

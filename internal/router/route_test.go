@@ -272,3 +272,51 @@ func TestRouteCodexThreadTitleGoesFastUnclassified(t *testing.T) {
 		t.Fatalf("classified %q", fc.questions[0].Message)
 	}
 }
+
+// A Codex compaction request is told by its request_kind "compaction" (and
+// a compaction_trigger item), so the router sends it to balanced: a fast
+// session escalates, a balanced/performance one stays. No classifier call.
+func TestRouteCodexCompactionGoesBalanced(t *testing.T) {
+	d, fc, _ := testDeps(t, nil)
+	r := NewRouter(d)
+
+	// a fast session (compaction escalates it)
+	h := http.Header{}
+	h.Set("X-Magpie-Session", "s-compact")
+	h.Set("x-codex-turn-metadata", `{"session_id":"s-compact","request_kind":"compaction","thread_source":"user","model":"group/mbridge"}`)
+	body := []byte(`{"model":"group/mbridge","input":[
+		{"type":"message","role":"user","content":[{"type":"input_text","text":"fix the login bug"}]},
+		{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]},
+		{"type":"compaction_trigger"}]}`)
+	req, err := wire.Parse(wire.Responses, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// the router keys session state by session + "|" + first-words hash
+	words := wire.FirstWords(req)
+	d.Sessions.Commit("s-compact|"+words, TurnState{Tier: TierFast})
+
+	got, ok := r.Route(context.Background(), h, body, req, "codex")
+	if !ok || got.Tier != TierBalanced || got.Reason != "R9-compact" {
+		t.Fatalf("compaction from fast: %+v ok=%v", got, ok)
+	}
+	if len(fc.questions) != 0 {
+		t.Fatalf("compaction classified: %d questions", len(fc.questions))
+	}
+
+	// an already-balanced session stays balanced
+	d.Sessions.Commit("s-compact-2|"+words, TurnState{Tier: TierBalanced})
+	h.Set("X-Magpie-Session", "s-compact-2")
+	h.Set("x-codex-turn-metadata", `{"session_id":"s-compact-2","request_kind":"compaction","thread_source":"user","model":"group/mbridge"}`)
+	if got, _ := r.Route(context.Background(), h, body, req, "codex"); got.Tier != TierBalanced || got.Reason != "R9-compact" {
+		t.Fatalf("compaction from balanced: %+v", got)
+	}
+
+	// a performance session stays performance
+	d.Sessions.Commit("s-compact-3|"+words, TurnState{Tier: TierPerformance})
+	h.Set("X-Magpie-Session", "s-compact-3")
+	h.Set("x-codex-turn-metadata", `{"session_id":"s-compact-3","request_kind":"compaction","thread_source":"user","model":"group/mbridge"}`)
+	if got, _ := r.Route(context.Background(), h, body, req, "codex"); got.Tier != TierPerformance || got.Reason != "R9-compact" {
+		t.Fatalf("compaction from performance: %+v", got)
+	}
+}

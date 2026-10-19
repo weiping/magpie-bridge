@@ -27,6 +27,12 @@ func CodexThreadSource(h http.Header, body []byte) string {
 	return codexMetaField(h, body, "thread_source")
 }
 
+// CodexRequestKind is the turn metadata's request_kind ("turn", "compaction").
+// "" when the request carries none.
+func CodexRequestKind(h http.Header, body []byte) string {
+	return codexMetaField(h, body, "request_kind")
+}
+
 // codexMetaField reads one string field of the turn metadata, from the
 // header first and then the body.
 func codexMetaField(h http.Header, body []byte, field string) string {
