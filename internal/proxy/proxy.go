@@ -18,7 +18,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weiping/magpie-bridge/internal/restart"
 	"github.com/weiping/magpie-bridge/internal/router"
+	"github.com/weiping/magpie-bridge/internal/service"
 	"github.com/weiping/magpie-bridge/internal/status"
 	"github.com/weiping/magpie-bridge/internal/wire"
 )
@@ -60,6 +62,11 @@ func Handler(target *url.URL, listen string, deps *router.Deps) http.Handler {
 	mux.HandleFunc("GET /status", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write(status.Page())
+	})
+	// the restart endpoint, which only a page on this address may call
+	// (SP14 §3.3). Not installed is a no-op: Manager.Restart says so.
+	restart.Register(mux, listen, func(ctx context.Context) error {
+		return service.New().Restart(ctx)
 	})
 	mux.Handle("/", New(target, rt, group))
 	return mux

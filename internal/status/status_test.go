@@ -6,17 +6,23 @@ import (
 	"testing"
 )
 
-// TestThePageFetchesOnlyTheRouterEndpoint: the status page reads mbridge
-// itself, and nothing else (SP14 §3.1).
-func TestThePageFetchesOnlyTheRouterEndpoint(t *testing.T) {
+// TestThePageFetchesOnlyMbridgesOwnEndpoints: the status page reads
+// mbridge itself and asks it to restart mbridge; it fetches nothing else
+// (SP14 §3.1).
+func TestThePageFetchesOnlyMbridgesOwnEndpoints(t *testing.T) {
 	html := string(Page())
 	fetch := regexp.MustCompile(`fetch\(\s*["']([^"']+)`)
 	got := fetch.FindAllStringSubmatch(html, -1)
-	if len(got) == 0 {
+	if len(got) < 2 {
 		t.Fatal("the page fetches nothing")
 	}
+	allowed := map[string]bool{"/v1/bridge/router": true, "/v1/bridge/restart": true}
 	for _, m := range got {
-		if !strings.HasPrefix(m[1], "/v1/bridge/router") {
+		path := m[1]
+		if i := strings.IndexByte(path, '?'); i > -1 {
+			path = path[:i]
+		}
+		if !allowed[path] {
 			t.Fatalf("the page fetches %q", m[1])
 		}
 	}

@@ -79,6 +79,10 @@ const TEXT = {
     distribution: "By tier, reason, harness",
     arms: "Two arms, and the calibration",
     window: "Window",
+    restart: "restart mbridge",
+    restarting: "restarting…",
+    restartAsked: "restart asked for — the pid changes when it comes back",
+    restartRefused: "refused (not same-origin?)",
     listenPending: "the listen in router.json takes effect only after a restart",
     configError: "router.json",
     noDecisions: "no decisions yet",
@@ -127,6 +131,10 @@ const TEXT = {
     distribution: "按档位、reason、harness",
     arms: "两臂与校准",
     window: "区间",
+    restart: "重启 mbridge",
+    restarting: "正在重启…",
+    restartAsked: "已发出重启指令 —— pid 变了就是回来了",
+    restartRefused: "被拒绝（不是同源？）",
     listenPending: "router.json 里的 listen 要重启才生效",
     configError: "router.json",
     noDecisions: "还没有判档",
@@ -455,6 +463,24 @@ function render(data) {
   }
   const svc = data.service || {};
   root.appendChild(el("h2", { text: t.process }));
+  const restartBtn = el("button", { type: "button", text: t.restart });
+  restartBtn.addEventListener("click", async () => {
+    restartBtn.disabled = true;
+    restartBtn.textContent = t.restarting;
+    try {
+      const res = await fetch("/v1/bridge/restart", { method: "POST" });
+      if (res.status === 202) {
+        // the instruction is out, not the restart: the pid tells us when
+        restartBtn.textContent = t.restartAsked;
+      } else {
+        restartBtn.textContent = t.restartRefused;
+        restartBtn.disabled = false;
+      }
+    } catch (err) {
+      restartBtn.textContent = String((err && err.message) || err);
+      restartBtn.disabled = false;
+    }
+  });
   root.appendChild(kv([
     ["pid", String(data.pid || "")],
     ["uptime", (data.uptime_s || 0) + "s"],
@@ -462,6 +488,7 @@ function render(data) {
     ["magpie", (data.magpie_ok ? (data.magpie_version || "") : "—")],
     ["service", (svc.installed ? (svc.running ? "running" : "installed, not running") : "not installed") +
       (svc.detail ? " · " + svc.detail : "")],
+    ["", restartBtn],
   ]));
 
   const cfg = data.config || {};
