@@ -1,6 +1,8 @@
 package router
 
 import (
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -242,4 +244,129 @@ func (s *Sessions) evictLocked(now time.Time) {
 			delete(s.m, k)
 		}
 	}
+}
+
+// LiveSession is one session that is being routed right now (SP14 §C).
+type LiveSession struct {
+	Key           string
+	Session       string
+	Tier          Tier
+	Turns         int
+	Tools         int
+	ToolFailures  int
+	EscalatedLeft int
+	LowerStreak   int
+	Pinned        bool
+	Parent        string
+	LastAt        time.Time
+}
+
+// LiveCard is a LiveSession with the last decision that judged it.
+type LiveCard struct {
+	LiveSession
+	Harness        string   `json:"harness"`
+	Agent          string   `json:"agent"`
+	Group          string   `json:"group"`
+	Reason         string   `json:"reason"`
+	TierConfidence *float64 `json:"tier_confidence"`
+	LatencyMs      int      `json:"latency_ms"`
+	ClassifyMs     int      `json:"classify_ms"`
+}
+
+// Live lists the sessions that asked for something within window, newest
+// first, at most 20 of them (SP14 §C). A session is one state key: a
+// gateway conversation has one per subagent, and they are listed apart.
+func (s *Sessions) Live(window time.Duration) []LiveSession {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := sessionClock()
+	live := []LiveSession{}
+	for key, st := range s.m {
+		// only a session that was judged is a card: one that was only
+		// observed has no tier
+		if st.tier.Tier == "" {
+			continue
+		}
+		// an inherited tier has no lastAt: it is not a turn of its own
+		if st.lastAt.IsZero() || now.Sub(st.lastAt) > window {
+			continue
+		}
+		session, words := splitKey(key)
+		card := LiveSession{
+			Key:           key,
+			Session:       session,
+			Tier:          st.tier.Tier,
+			Turns:         st.turns,
+			EscalatedLeft: st.tier.EscalatedLeft,
+			LowerStreak:   st.tier.LowerStreak,
+			LastAt:        st.lastAt,
+		}
+		// the tool counts, the pin and the parent belong to the session,
+		// not to the key (SP14 §C, 坑 1)
+		if sst, ok := s.m[session]; ok {
+			card.Tools, card.ToolFailures = sst.toolCalls, sst.toolFailures
+			card.Pinned = sst.pinned
+		}
+		if p, ok := s.parentLocked(session, words); ok {
+			card.Parent = p
+		}
+		live = append(live, card)
+	}
+	// newest first, then at most 20
+	sort.Slice(live, func(i, j int) bool { return live[i].LastAt.After(live[j].LastAt) })
+	if len(live) > 20 {
+		live = live[:20]
+	}
+	return live
+}
+
+// parentLocked resolves a session's parent without taking the lock.
+func (s *Sessions) parentLocked(session, firstWords string) (string, bool) {
+	st, marked := s.m[session]
+	if !marked {
+		return "", false
+	}
+	if st.parent != "" {
+		return st.parent, true
+	}
+	if firstWords == "" {
+		return "", false
+	}
+	if p, ok := s.words[firstWords]; ok && p != session {
+		return p, true
+	}
+	return "", false
+}
+
+// SessionOfKey is the session a state key belongs to: on the harness path
+// the key is the session; on the gateway path it is the session, a "|",
+// and the first words of the conversation (SP14 §C, 坑 1). The session id
+// comes from the client and may contain a "|", so only a 24-hex suffix
+// after the LAST "|" is first words.
+func SessionOfKey(key string) string {
+	session, _ := splitKey(key)
+	return session
+}
+
+// splitKey splits a state key into its session and its first words.
+func splitKey(key string) (session, firstWords string) {
+	i := strings.LastIndex(key, "|")
+	if i < 0 {
+		return key, ""
+	}
+	suffix := key[i+1:]
+	if len(suffix) != 24 || !isHex(suffix) {
+		return key, ""
+	}
+	return key[:i], suffix
+}
+
+// isHex reports whether s is lowercase hexadecimal.
+func isHex(s string) bool {
+	for _, r := range s {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+	return len(s) > 0
 }

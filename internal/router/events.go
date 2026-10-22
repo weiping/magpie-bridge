@@ -42,6 +42,10 @@ type Event struct {
 	PreviousAnswer bool `json:"previous_answer,omitempty"`
 	// why the classification failed, when it did (R7-carry, R8-default)
 	ClassifyError string `json:"classify_error,omitempty"`
+	// ClassifyMs is how long the classifier took, success or failure
+	// (SP14 §E). LatencyMs is the whole Decide; this is the classifier's
+	// own part of it. Old events have no ClassifyMs: it reads as 0.
+	ClassifyMs int `json:"classify_ms,omitempty"`
 }
 
 var (

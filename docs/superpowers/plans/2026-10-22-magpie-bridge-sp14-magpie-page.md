@@ -115,22 +115,24 @@ git commit -m "refactor: drop the options channel the spec does not take"
   - CLI `mbridge status --json`；输出是**一个 JSON 对象**，形状固定：
     ```go
     type statusReport struct {
-        ConfigPath   string   `json:"config_path"`
-        ConfigError  string   `json:"config_error,omitempty"`
-        MagpieURL    string   `json:"magpie_url"`
-        MagpieOK     bool     `json:"magpie_ok"`
-        MagpieVersion string  `json:"magpie_version,omitempty"`
-        MissingGroups []string `json:"missing_groups,omitempty"`
-        Running      bool     `json:"running"`
-        Listen       string   `json:"listen,omitempty"`
-        Decisions    []struct {
-            Session string `json:"session"`
-            Tier    string `json:"tier"`
-            Reason  string `json:"reason"`
-        } `json:"decisions"`
+        ConfigPath     string           `json:"config_path"`
+        ConfigError    string           `json:"config_error,omitempty"`
+        ReviewMode     string           `json:"review_mode,omitempty"`
+        MagpieURL      string           `json:"magpie_url,omitempty"`
+        MagpieOK       bool             `json:"magpie_ok"`
+        MagpieVersion  string           `json:"magpie_version,omitempty"`
+        MagpieError    string           `json:"magpie_error,omitempty"`
+        GroupsError    string           `json:"groups_error,omitempty"`
+        MissingGroups  []string         `json:"missing_groups,omitempty"`
+        UnlistedGroups []string         `json:"unlisted_groups,omitempty"`
+        Running        bool             `json:"running"`
+        BridgeState    string           `json:"bridge_state"` // running | down | invalid | unreadable
+        Listen         string           `json:"listen,omitempty"`
+        BridgeError    string           `json:"bridge_error,omitempty"`
+        Decisions      []statusDecision `json:"decisions"`
     }
     ```
-    `statusCmd` 现在的每一段结论（router.json 读没读出来、magpie 通不通、缺哪些组、mbridge 在不在跑、最近判档）在 JSON 里**一项一项对应**，不新增结论。
+    `statusCmd` 现在的每一段结论（router.json 读没读出来、magpie 通不通、缺哪些组、mbridge 在不在跑、最近判档）在 JSON 里**一项一项对应**，不新增结论。`bridge_state` 分四种：跑着、没在跑（连不上）、跑着但没有 router（`valid:false`）、答了别的东西。
 
 - [ ] **Step 1: 写失败测试**
 

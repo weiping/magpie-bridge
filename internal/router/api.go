@@ -130,6 +130,7 @@ func (d *Deps) Decide(ctx context.Context, in DecideInput) Decided {
 	_, fixed := pc.FixedAgents[in.Agent]
 	var classified *Verdict
 	var classifyErr string
+	var classifyMs int
 	source := "default"
 	isDirectCompact := IsCompactPrompt(in.Prompt)
 	if isDirectCompact {
@@ -163,6 +164,9 @@ func (d *Deps) Decide(ctx context.Context, in DecideInput) Decided {
 				short, in.Harness, in.Agent, utf8.RuneCountInString(in.Prompt), utf8.RuneCountInString(in.PreviousAnswer),
 				time.Since(cstart).Milliseconds(), classifyErr)
 		}
+		// the classifier's own time, success or failure (SP14 §E): the
+		// Decide's LatencyMs includes it, and used to be the only number.
+		classifyMs = int(time.Since(cstart).Milliseconds())
 	}
 
 	var review *ReviewVerdict
@@ -209,6 +213,7 @@ func (d *Deps) Decide(ctx context.Context, in DecideInput) Decided {
 		TurnID: turnID, WouldReview: decision.WouldReview,
 		PreviousAnswer: classified != nil && in.PreviousAnswer != "",
 		ClassifyError:  classifyErr,
+		ClassifyMs:     classifyMs,
 	}
 	if classified != nil {
 		ev.ClassifiedTier, ev.Classifier = classified.Tier, classified.Source
