@@ -15,8 +15,8 @@ var version = "dev"
 const usageText = `mbridge — per-turn model routing for coding agents, on official magpie
 
   mbridge serve                         run mbridge in the foreground (the service runs it)
-  mbridge service install|uninstall|status  run mbridge at login
-  mbridge status                        magpie, mbridge, the tier groups and the latest decisions
+  mbridge service install|uninstall|status|restart  run mbridge at login
+  mbridge status [--json]              magpie, mbridge, the tier groups and the latest decisions
   mbridge router init --preset <frontier|anthropic|cn> [--groups-only] [--force] [--native]
                                         tier groups in magpie, router.json, and the agents' wiring
                                         (--native: also the groups that route by magpie's own rules)

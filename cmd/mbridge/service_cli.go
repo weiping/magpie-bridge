@@ -11,10 +11,10 @@ import (
 
 var newService = service.New
 
-// serviceCmd is `mbridge service install|uninstall|status` (SP8 §5.7).
+// serviceCmd is `mbridge service install|uninstall|status|restart` (SP8 §5.7).
 func serviceCmd(args []string) error {
 	if len(args) != 1 {
-		return fmt.Errorf("usage: mbridge service install|uninstall|status")
+		return fmt.Errorf("usage: mbridge service install|uninstall|status|restart")
 	}
 	ctx := context.Background()
 	m := newService()
@@ -50,6 +50,14 @@ func serviceCmd(args []string) error {
 		}
 		fmt.Println(mark, "service:", detail)
 		return nil
+	case "restart":
+		// the running mbridge is the old binary: the supervisor brings the
+		// new one up (SP14 §5.2)
+		if err := m.Restart(ctx); err != nil {
+			return err
+		}
+		fmt.Println(green.Render("✓"), "mbridge restarts now")
+		return nil
 	}
-	return fmt.Errorf("usage: mbridge service install|uninstall|status")
+	return fmt.Errorf("usage: mbridge service install|uninstall|status|restart")
 }
