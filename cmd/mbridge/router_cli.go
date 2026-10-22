@@ -661,25 +661,11 @@ func routerCalibrateTo(w io.Writer, args []string) error {
 }
 
 // readRouterEvents reads router.jsonl, skipping lines that do not parse.
+// readRouterEvents is router.jsonl read whole; the reader lives in
+// internal/router now (SP14 §3.2), so the in-process aggregator and this
+// CLI read the same file the same way.
 func readRouterEvents() ([]router.Event, error) {
-	b, err := os.ReadFile(filepath.Join(fsutil.ConfigDir(), "router.jsonl"))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	var events []router.Event
-	for _, line := range strings.Split(string(b), "\n") {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		var ev router.Event
-		if json.Unmarshal([]byte(line), &ev) == nil {
-			events = append(events, ev)
-		}
-	}
-	return events, nil
+	return router.ReadEvents(filepath.Join(fsutil.ConfigDir(), "router.jsonl"))
 }
 
 // routerReport is `mbridge router report [--since 14d] [--json]` (§9):

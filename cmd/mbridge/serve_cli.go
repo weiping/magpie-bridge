@@ -45,6 +45,12 @@ func serveCmd(args []string) error {
 		log.SetOutput(io.MultiWriter(logf, os.Stderr))
 	}
 	r := newReloader(filepath.Join(fsutil.ConfigDir(), "router.json"))
+	// the windows are aggregated in the background: a page load must not
+	// re-scan router.jsonl or re-run magpie's usage (SP14 §3.2)
+	if r.deps != nil {
+		r.windows.Config = &r.deps.Config
+	}
+	go r.windows.Run(ctx)
 	log.Printf("mbridge on %s, magpie at %s", r.listen, r.target)
 	return proxy.Serve(ctx, r.listen, r)
 }
@@ -59,6 +65,11 @@ type reloader struct {
 	every time.Duration
 	// started is when serve began: the status page's uptime (SP14 §A)
 	started time.Time
+	// windows aggregates the router's own windows for the status page,
+	// every thirty seconds (SP14 §3.2)
+	windows *router.Aggregator
+	// magpieURL is where magpie answers now: router.json's magpie_url.
+	magpieURL string
 
 	mu      sync.Mutex
 	checked time.Time
@@ -70,10 +81,21 @@ type reloader struct {
 }
 
 func newReloader(path string) *reloader {
-	r := &reloader{path: path, every: time.Second, started: time.Now()}
+	r := &reloader{path: path, every: time.Second, started: time.Now(), magpieURL: magpie.DefaultURL}
+	// the aggregate reaches 30 days back, so it asks magpie for 30d and
+	// filters: the windows are 1d / 7d / 30d (SP14 §3.2)
+	r.windows = router.NewAggregator(filepath.Join(fsutil.ConfigDir(), "router.jsonl"), r.usage, 30*time.Second)
 	r.stamp = stampOf(path)
 	r.build()
 	return r
+}
+
+// usage is magpie's ledger for one period, for the windows.
+func (r *reloader) usage(ctx context.Context, period string) ([]magpie.UsageRow, error) {
+	r.mu.Lock()
+	url := r.magpieURL
+	r.mu.Unlock()
+	return magpie.New(url).Usage(ctx, period)
 }
 
 func (r *reloader) ServeHTTP(w http.ResponseWriter, req *http.Request) {
@@ -114,6 +136,8 @@ func (r *reloader) build() {
 		deps.Listen = r.listen
 		deps.Service = serviceStatus
 		deps.MagpieInfo = magpieInfo(deps.Config.MagpieURL)
+		deps.Windows = r.windows.View
+		r.magpieURL = deps.Config.MagpieURL
 	}
 	r.h, r.deps, r.target = proxy.Handler(target, deps), deps, target
 }

@@ -80,6 +80,9 @@ type Deps struct {
 	Listen     string
 	Service    func(context.Context) ServiceStatus
 	MagpieInfo func(context.Context) (string, bool)
+	// Windows is one of the aggregate windows, already computed (SP14
+	// §3.2). nil before the first aggregation.
+	Windows func(kind string) WindowView
 
 	mu        sync.Mutex
 	decisions []Event // ring of the last 20 decisions, for /v1/bridge/router
@@ -483,6 +486,13 @@ func (d *Deps) status(w http.ResponseWriter, r *http.Request) {
 	d.mu.Unlock()
 	// SP14 §A/§B: the process and its configuration, as they are in force
 	v := d.StatusView()
+	// SP14 §3.2: the aggregate comes from the background aggregator,
+	// computed every thirty seconds; window only moves these sections.
+	kind := WindowKind(r.URL.Query().Get("window"))
+	view := WindowView{Kind: kind}
+	if d.Windows != nil {
+		view = d.Windows(kind)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"valid":        true,
 		"router_group": d.Config.RouterGroup,
@@ -502,6 +512,7 @@ func (d *Deps) status(w http.ResponseWriter, r *http.Request) {
 		"config_error":     v.ConfigError,
 		"config":           v.Config,
 		"live":             v.Live,
+		"window":           view,
 	})
 }
 
