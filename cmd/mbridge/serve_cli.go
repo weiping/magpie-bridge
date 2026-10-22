@@ -57,6 +57,8 @@ func serveCmd(args []string) error {
 type reloader struct {
 	path  string
 	every time.Duration
+	// started is when serve began: the status page's uptime (SP14 §A)
+	started time.Time
 
 	mu      sync.Mutex
 	checked time.Time
@@ -68,7 +70,7 @@ type reloader struct {
 }
 
 func newReloader(path string) *reloader {
-	r := &reloader{path: path, every: time.Second}
+	r := &reloader{path: path, every: time.Second, started: time.Now()}
 	r.stamp = stampOf(path)
 	r.build()
 	return r
@@ -105,7 +107,35 @@ func (r *reloader) build() {
 	} else {
 		r.listen = listen
 	}
+	if deps != nil {
+		// what the status page shows about the process (SP14 §A)
+		deps.Version = version
+		deps.StartedAt = r.started
+		deps.Listen = r.listen
+		deps.Service = serviceStatus
+		deps.MagpieInfo = magpieInfo(deps.Config.MagpieURL)
+	}
 	r.h, r.deps, r.target = proxy.Handler(target, deps), deps, target
+}
+
+// serviceStatus is what the platform's service manager says about
+// mbridge (SP14 §A).
+func serviceStatus(ctx context.Context) router.ServiceStatus {
+	m := service.New()
+	running, detail, _ := m.Status(ctx)
+	return router.ServiceStatus{Installed: m.Installed(), Running: running, Detail: detail}
+}
+
+// magpieInfo is magpie's version and whether it answers.
+func magpieInfo(url string) func(context.Context) (string, bool) {
+	return func(ctx context.Context) (string, bool) {
+		c := magpie.New(url)
+		if err := c.Health(ctx); err != nil {
+			return "", false
+		}
+		v, _ := c.Version(ctx)
+		return v, true
+	}
 }
 
 // stampOf is a file's size and time, or "" when it can't be read.

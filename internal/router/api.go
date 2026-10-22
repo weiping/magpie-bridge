@@ -72,6 +72,15 @@ type Deps struct {
 	Classify Classifier
 	Log      func(Event) error // defaults to Append
 
+	// SP14 §A: what the process knows about itself and its surroundings.
+	// The service manager and magpie are functions, so a test can answer
+	// them without either.
+	Version    string
+	StartedAt  time.Time
+	Listen     string
+	Service    func(context.Context) ServiceStatus
+	MagpieInfo func(context.Context) (string, bool)
+
 	mu        sync.Mutex
 	decisions []Event // ring of the last 20 decisions, for /v1/bridge/router
 }
@@ -416,14 +425,26 @@ func (d *Deps) status(w http.ResponseWriter, r *http.Request) {
 	d.mu.Lock()
 	decisions := append([]Event(nil), d.decisions...)
 	d.mu.Unlock()
+	// SP14 §A/§B: the process and its configuration, as they are in force
+	v := d.StatusView()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"valid":        true,
 		"router_group": d.Config.RouterGroup,
 		// SP10: the clients wait this long for /turn
-		"turn_budget_ms": d.Config.TurnBudgetMs(),
-		"tiers":          tiers,
-		"experiment":     d.Config.Experiment,
-		"decisions":      decisions,
+		"turn_budget_ms":   d.Config.TurnBudgetMs(),
+		"tiers":            tiers,
+		"experiment":       v.Config.Experiment,
+		"decisions":        decisions,
+		"version":          v.Version,
+		"pid":              v.PID,
+		"uptime_s":         v.UptimeS,
+		"listen":           v.Listen,
+		"listen_pending":   v.ListenPending,
+		"magpie_version":   v.MagpieVersion,
+		"magpie_ok":        v.MagpieOK,
+		"service":          v.Service,
+		"config_error":     v.ConfigError,
+		"config":           v.Config,
 	})
 }
 

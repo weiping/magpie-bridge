@@ -225,6 +225,13 @@ func (m *Manager) Uninstall(ctx context.Context) error {
 	return nil
 }
 
+// Installed reports whether the unit is there: mbridge runs as a service
+// only if it is.
+func (m *Manager) Installed() bool {
+	path, _ := Unit(m.GOOS, m.Home, m.ConfigDir, "")
+	return exists(path)
+}
+
 // Status says whether the service manager has mbridge running, with its
 // own words for it.
 func (m *Manager) Status(ctx context.Context) (running bool, detail string, err error) {
