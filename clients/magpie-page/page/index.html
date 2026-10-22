@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mbridge</title>
+<link rel="stylesheet" href="style.css">
+<script src="_magpie/bridge.js"></script>
+<script src="view.js"></script>
+</head>
+<body>
+<main id="root" class="root">
+  <header class="head">
+    <h1 id="title" class="title">mbridge</h1>
+    <p id="subtitle" class="subtitle"></p>
+  </header>
+
+  <div class="bar">
+    <div id="periods" class="segmented"></div>
+    <div id="sorts" class="segmented"></div>
+  </div>
+
+  <section id="tiles" class="tiles"></section>
+
+  <section class="models">
+    <div class="models-head">
+      <h2 id="models-label" class="label"></h2>
+      <span id="models-sort" class="muted"></span>
+    </div>
+    <table class="table">
+      <thead>
+        <tr>
+          <th id="th-model"></th>
+          <th class="num" id="th-calls"></th>
+          <th class="num" id="th-tokens"></th>
+          <th class="num" id="th-cost"></th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <p id="empty" class="muted empty"></p>
+  </section>
+
+  <section class="notes">
+    <p id="disclaimer" class="note"></p>
+    <p class="note">
+      <span id="status-label"></span>
+      <span id="status-addr" class="addr" title="select and copy it"></span>
+      <span id="restart-label"></span>
+      <code class="cmd">mbridge service restart</code>
+    </p>
+  </section>
+
+  <p id="error" class="error"></p>
+</main>
+<script src="app.js" defer></script>
+</body>
+</html>
