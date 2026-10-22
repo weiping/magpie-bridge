@@ -89,6 +89,7 @@ const TEXT = {
     unknown: "unknown",
     notAsked: "not asked",
     notMeasured: "—",
+    failed: "failed",
     finalTier: "sent",
     advised: "advised",
     tools: "tools",
@@ -141,6 +142,7 @@ const TEXT = {
     unknown: "未知",
     notAsked: "没问",
     notMeasured: "—",
+    failed: "failed",
     finalTier: "送去",
     advised: "建议",
     tools: "工具",
@@ -364,13 +366,16 @@ function classifierPanel(w) {
     t.appendChild(el("thead", {}, head));
     const body = el("tbody");
     for (const ev of turns) {
-      const asked = !!ev.classifier;
+      // asked = it got a verdict, or it did not and said why: a turn that
+      // never asked has neither (SP14 §E)
+      const asked = !!ev.classifier || !!ev.classify_error;
       body.appendChild(el("tr", { class: asked ? "" : "off" }, [
         el("td", { text: (ev.t || "").slice(11, 19) + " " + (ev.harness || T().unknown) }),
         el("td", {}, scoreCell(ev.tier_confidence, asked)),
         el("td", {}, scoreCell(ev.dissatisfied, asked)),
         el("td", {}, scoreCell(ev.compact, asked)),
-        el("td", { class: "num", text: asked && ev.classify_ms ? ev.classify_ms + "ms" : T().notMeasured }),
+        el("td", { class: "num", text: asked && ev.classify_ms ? ev.classify_ms + "ms" :
+          (ev.classify_error ? T().failed : T().notMeasured) }),
         el("td", { class: "num", text: ev.latency_ms ? ev.latency_ms + "ms" : T().notMeasured }),
       ]));
     }

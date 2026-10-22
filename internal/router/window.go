@@ -77,6 +77,8 @@ type WindowView struct {
 	// both arms, and the three calibration tables
 	Report    Report            `json:"report"`
 	Calibrate []ScoreCalibration `json:"calibrate"`
+	// Turns are the last turns of the window, for the classifier's panel
+	Turns []Event `json:"turns"`
 	// PRStates says the merged-PR rate came from feedback alone: in
 	// process mbridge cannot ask gh, `mbridge router report` can.
 	PRStates string `json:"pr_states"`
@@ -290,9 +292,13 @@ func AggregateWindow(cfg Config, events []Event, rows []magpie.UsageRow, kind st
 			v.Agents["sub"]++
 		}
 		v.Coverage.Total++
-		// Classifier empty = the classifier was never asked: that is the
-		// only way to tell "not asked" from "asked and got nothing"
-		if ev.Classifier == "" {
+		// A turn that asked the classifier either got a verdict (the model
+		// id is in Classifier) or did not (ClassifyError says why): both
+		// are "asked", and a failure is counted among them. A turn that
+		// never asked — a pinned agent, plan mode, a compaction command —
+		// has neither.
+		asked := ev.Classifier != "" || ev.ClassifyError != ""
+		if !asked {
 			continue
 		}
 		v.Coverage.Asked++
@@ -307,6 +313,13 @@ func AggregateWindow(cfg Config, events []Event, rows []magpie.UsageRow, kind st
 			v.Classify.ErrorOne[k] = ev.ClassifyError
 		}
 	}
+	// the last turns, for the classifier's panel (SP14 §E): the newest
+	// ten of the window, oldest first
+	if len(decides) > 10 {
+		v.Turns = decides[len(decides)-10:]
+	} else {
+		v.Turns = decides
+	}
 	var records []magpie.UsageRow
 	for _, r := range rows {
 		if r.Time.After(since) {
@@ -320,11 +333,19 @@ func AggregateWindow(cfg Config, events []Event, rows []magpie.UsageRow, kind st
 	return v
 }
 
-// eventTime is when an event happened.
+// eventTime is when an event happened. Event's JSON tag is `json:"t"`,
+// but in Go the field is Time.
 func eventTime(ev Event) (time.Time, bool) {
-	t, err := time.Parse(time.RFC3339, ev.Time)
-	if err != nil {
+	if ev.Time == "" {
 		return time.Time{}, false
 	}
-	return t, true
+	t, err := time.Parse(time.RFC3339Nano, ev.Time)
+	if err == nil {
+		return t, true
+	}
+	t, err = time.Parse(time.RFC3339, ev.Time)
+	if err == nil {
+		return t, true
+	}
+	return time.Time{}, false
 }

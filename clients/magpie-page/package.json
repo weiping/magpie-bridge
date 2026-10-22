@@ -1,9 +1,26 @@
 {
-  "name": "mbridge-page",
+  "name": "@weiping/mbridge-page",
   "version": "0.1.0",
   "description": "mbridge's usage at a glance inside magpie: what magpie's ledger recorded, and where mbridge's own status page is.",
   "license": "MIT",
-  "private": true,
+  "keywords": [
+    "magpie",
+    "magpie-plugin",
+    "mbridge",
+    "model-router"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/weiping/mbridge.git",
+    "directory": "clients/magpie-page"
+  },
+  "bugs": {
+    "url": "https://github.com/weiping/mbridge/issues"
+  },
+  "files": [
+    "page",
+    "README.md"
+  ],
   "magpie": {
     "page": {
       "title": "mbridge",

@@ -3,6 +3,7 @@ package router
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -257,5 +258,52 @@ func writeLog(t *testing.T, path string, events []Event) {
 		if _, err := f.Write(append(b, '\n')); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+// TestAFailedClassificationIsStillAnAskedOne: a turn whose classification
+// failed has no Classifier (there was no verdict) but it did ask, and the
+// failure is counted among the asked ones (SP14 §E). Counting only the
+// answered ones would make the failure rate always zero.
+func TestAFailedClassificationIsStillAnAskedOne(t *testing.T) {
+	now := time.Now()
+	events := []Event{
+		{Kind: "decide", Time: now.Add(-time.Hour).Format(time.RFC3339), Session: "s1",
+			Harness: "codex", Agent: "main", Tier: TierBalanced, Reason: "R7-carry",
+			ClassifyError: "timeout (classify_timeout_ms): context deadline exceeded"},
+		{Kind: "decide", Time: now.Add(-2 * time.Hour).Format(time.RFC3339), Session: "s2",
+			Harness: "codex", Agent: "main", Tier: TierFast, Reason: "R2-plan-mode", Source: "rule"},
+	}
+	v := AggregateWindow(Config{}, events, nil, "7d", now)
+	if v.Coverage.Total != 2 {
+		t.Fatalf("total %d", v.Coverage.Total)
+	}
+	if v.Coverage.Asked != 1 {
+		t.Fatalf("asked %d", v.Coverage.Asked)
+	}
+	if v.Classify.Failures != 1 {
+		t.Fatalf("failures %d", v.Classify.Failures)
+	}
+	if v.Classify.ErrorKinds["timeout"] != 1 {
+		t.Fatalf("error kinds %v", v.Classify.ErrorKinds)
+	}
+}
+
+// TestTheWindowKeepsTheLastTurns: the classifier's panel shows the last
+// turns of the window (SP14 §E).
+func TestTheWindowKeepsTheLastTurns(t *testing.T) {
+	now := time.Now()
+	var events []Event
+	for i := 0; i < 15; i++ {
+		events = append(events, Event{Kind: "decide",
+			Time: now.Add(-time.Duration(15-i) * time.Hour).Format(time.RFC3339),
+			Session: fmt.Sprintf("s-%02d", i), Harness: "codex", Agent: "main",
+			Tier: TierBalanced, Reason: "R6-adopt", Classifier: "typesafe/jev-latest"})
+	}
+	v := AggregateWindow(Config{}, events, nil, "7d", now)
+	if len(v.Turns) != 10 {
+		t.Fatalf("turns %d", len(v.Turns))
+	}
+	if v.Turns[len(v.Turns)-1].Session != "s-14" {
+		t.Fatalf("the newest turn is %q", v.Turns[len(v.Turns)-1].Session)
 	}
 }
