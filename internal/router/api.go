@@ -271,7 +271,33 @@ func (d *Deps) noteLive(key string, ev Event) {
 
 // LiveWindow is how long a session counts as running (SP14 §C). It is a
 // display window, not a storage policy.
+// LiveWindow is how long a session counts as running (SP14 §C). It is a
+// display window, not a storage policy.
 const LiveWindow = 5 * time.Minute
+
+// LiveTotal is how many sessions are running, including the ones the
+// twenty-card cut leaves out (SP14 §C).
+func (s *Sessions) LiveTotal(window time.Duration) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := sessionClock()
+	n := 0
+	for _, st := range s.m {
+		if st.tier.Tier == "" || st.lastAt.IsZero() || now.Sub(st.lastAt) > window {
+			continue
+		}
+		n++
+	}
+	return n
+}
+
+// liveTotal is how many sessions are running, cut or not (SP14 §C).
+func (d *Deps) liveTotal(window time.Duration) int {
+	if d.Sessions == nil {
+		return 0
+	}
+	return d.Sessions.LiveTotal(window)
+}
 
 // LiveCards are the sessions running right now, with the decision that
 // judged each of them (SP14 §C).
@@ -512,6 +538,7 @@ func (d *Deps) status(w http.ResponseWriter, r *http.Request) {
 		"config_error":     v.ConfigError,
 		"config":           v.Config,
 		"live":             v.Live,
+		"live_total":       d.liveTotal(LiveWindow),
 		"window":           view,
 	})
 }

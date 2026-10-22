@@ -139,7 +139,7 @@ func (r *reloader) build() {
 		deps.Windows = r.windows.View
 		r.magpieURL = deps.Config.MagpieURL
 	}
-	r.h, r.deps, r.target = proxy.Handler(target, deps), deps, target
+	r.h, r.deps, r.target = proxy.Handler(target, r.listen, deps), deps, target
 }
 
 // serviceStatus is what the platform's service manager says about

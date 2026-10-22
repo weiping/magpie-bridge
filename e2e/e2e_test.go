@@ -87,7 +87,7 @@ func setup(t *testing.T) *env {
 	}
 	deps := &router.Deps{Config: rc, Classify: router.NewClassifier(rc, router.AskVia(c))}
 	target, _ := url.Parse(m.URL)
-	q := httptest.NewServer(proxy.Handler(target, deps))
+	q := httptest.NewServer(proxy.Handler(target, "127.0.0.1:3426", deps))
 	t.Cleanup(q.Close)
 	return &env{Up: up, Magpie: m, Mbridge: q}
 }

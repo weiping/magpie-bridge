@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/weiping/magpie-bridge/internal/router"
+	"github.com/weiping/magpie-bridge/internal/status"
 	"github.com/weiping/magpie-bridge/internal/wire"
 )
 
@@ -29,7 +30,12 @@ const MaxBody = 16 << 20
 // Handler serves mbridge: the router's endpoints and the proxy to magpie
 // at target. deps nil means router.json could not be loaded: everything
 // passes through, and /v1/bridge/router says why.
-func Handler(target *url.URL, deps *router.Deps) http.Handler {
+// Handler serves mbridge: the router's endpoints, its status page, and
+// the proxy to magpie at target. deps nil means router.json could not be
+// loaded: everything passes through, /v1/bridge/router says why, and the
+// status page still says what it can. listen is the address mbridge
+// serves on.
+func Handler(target *url.URL, listen string, deps *router.Deps) http.Handler {
 	mux := http.NewServeMux()
 	var rt *router.Router
 	if deps != nil {
@@ -49,6 +55,12 @@ func Handler(target *url.URL, deps *router.Deps) http.Handler {
 	if deps != nil && deps.Config.RouterGroup != "" {
 		group = deps.Config.RouterGroup
 	}
+	// the status page is mbridge's own (SP14 §3.1); it reads
+	// /v1/bridge/router from the same origin, five seconds at a time
+	mux.HandleFunc("GET /status", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(status.Page())
+	})
 	mux.Handle("/", New(target, rt, group))
 	return mux
 }

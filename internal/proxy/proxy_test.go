@@ -109,7 +109,7 @@ func setup(t *testing.T, tiers ...router.Tier) *env {
 		mu.Unlock()
 		return nil
 	}}
-	srv := httptest.NewServer(Handler(target, deps))
+	srv := httptest.NewServer(Handler(target, "127.0.0.1:3426", deps))
 	t.Cleanup(srv.Close)
 	return &env{up: up, srv: srv, cls: cls, events: &events, deps: deps}
 }
@@ -300,7 +300,7 @@ func TestProxyMagpieDownIs502WithAddress(t *testing.T) {
 	addr := ln.Addr().String()
 	ln.Close()
 	target, _ := url.Parse("http://" + addr)
-	srv := httptest.NewServer(Handler(target, nil))
+	srv := httptest.NewServer(Handler(target, "127.0.0.1:3426", nil))
 	defer srv.Close()
 	res, err := http.Post(srv.URL+"/v1/responses", "application/json", strings.NewReader(`{"model":"x"}`))
 	if err != nil {
@@ -344,7 +344,7 @@ func TestServeBadConfigPassesThrough(t *testing.T) {
 	target, _ := url.Parse(mag.URL)
 	router.SetConfigError(io.ErrUnexpectedEOF)
 	defer router.SetConfigError(nil)
-	srv := httptest.NewServer(Handler(target, nil))
+	srv := httptest.NewServer(Handler(target, "127.0.0.1:3426", nil))
 	defer srv.Close()
 	res, _ := http.Post(srv.URL+"/v1/responses", "application/json", strings.NewReader(responses("hi", false)))
 	res.Body.Close()
@@ -383,5 +383,44 @@ func TestServeRefusesNonLoopbackListen(t *testing.T) {
 		if err := Serve(ctx, addr, http.NotFoundHandler()); err != nil && strings.Contains(err.Error(), "loopback") {
 			t.Errorf("%s refused: %v", addr, err)
 		}
+	}
+}
+
+// The status page is mbridge's own, served from its own address and not
+// proxied through to magpie (SP14 §3.1).
+func TestStatusPageIsServedAndTheRootStillProxies(t *testing.T) {
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("magpie"))
+	}))
+	defer up.Close()
+	target, _ := url.Parse(up.URL)
+	srv := httptest.NewServer(Handler(target, "127.0.0.1:3426", nil))
+	defer srv.Close()
+
+	res, err := http.Get(srv.URL + "/status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != 200 {
+		t.Fatalf("status %d", res.StatusCode)
+	}
+	if ct := res.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Fatalf("content type %q", ct)
+	}
+	body, _ := io.ReadAll(res.Body)
+	if !strings.Contains(string(body), "/v1/bridge/router") {
+		t.Fatal("the page does not read the router endpoint")
+	}
+
+	// "/" is the reverse proxy: mbridge's own requests through to magpie
+	res2, err := http.Get(srv.URL + "/v1/models")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res2.Body.Close()
+	b2, _ := io.ReadAll(res2.Body)
+	if string(b2) != "magpie" {
+		t.Fatalf("root answered %q", b2)
 	}
 }
