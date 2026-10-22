@@ -6,7 +6,12 @@ import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { count, money, pct, tiles, rows, periods, sorts, header } from "./page/view.js";
+// The page loads view.js as a classic script (the magpie sandbox serves
+// the plugin's own files; the community's usage page does it this way).
+// The test loads it the same way and reads what it put on globalThis.
+await import("./page/view.js");
+const V = globalThis.MbridgeView;
+const { count, money, pct, tiles, rows } = V;
 
 const dir = import.meta.dir;
 const pageDir = join(dir, "page");
@@ -74,7 +79,25 @@ test("the page loads only its own files", () => {
   expect(html).not.toMatch(/href="http/);
 });
 
-/* 4. the arithmetic, exactly, in both languages. */
+
+/* 4. the page's scripts must be classic scripts: the magpie sandbox loads
+   them with <script src>, and a module (import/export) is a SyntaxError
+   there — the page would come up blank. This is the test that catches
+   it. */
+test("the page's scripts are classic scripts, not modules", () => {
+  for (const f of ["view.js", "app.js"]) {
+    const src = read(f);
+    expect(src).not.toMatch(/^\s*import\s/m);
+    expect(src).not.toMatch(/^\s*export\s/m);
+    // what a classic script means: it parses as one
+    expect(() => new Function(src)).not.toThrow();
+  }
+  // and the view is on globalThis, where the page looks for it
+  expect(typeof globalThis.MbridgeView).toBe("object");
+  expect(typeof globalThis.MbridgeView.tiles).toBe("function");
+});
+
+/* 5. the arithmetic, exactly, in both languages. */
 test("the four tiles, in both languages", () => {
   expect(tiles(SUMMARY, "en")).toEqual([
     { key: "calls", label: "calls", value: "1,200" },
@@ -88,28 +111,27 @@ test("the four tiles, in both languages", () => {
     { key: "tokens", label: "Token", value: "1.20M" },
     { key: "cost", label: "费用", value: "$12.35" },
   ]);
-  expect(periods("en").map((p) => p.label)).toEqual(["today", "7 days", "30 days"]);
-  expect(periods("zh").map((p) => p.label)).toEqual(["今天", "7 天", "30 天"]);
-  expect(sorts("en").map((s) => s.key)).toEqual(["tokens", "calls", "cost"]);
+  expect(V.PERIODS).toEqual(["today", "7d", "30d"]);
+  expect(V.SORTS).toEqual(["tokens", "calls", "cost"]);
+  expect(V.periodLabel("7d", "en")).toBe("7 days");
+  expect(V.periodLabel("7d", "zh")).toBe("7 天");
+  expect(V.sortLabel("cost", "zh")).toBe("费用");
 });
 
 test("the model table, sorted, with shares", () => {
   const byTokens = rows(SUMMARY, "tokens", "en");
-  expect(byTokens.sortLabel).toBe("tokens");
-  expect(byTokens.items.map((i) => i.model)).toEqual([
+  expect(byTokens.map((i) => i.model)).toEqual([
     "kimi/kimi-k2",            // 400k in + 150k out
     "deepseek/deepseek-chat",  // 400k in + 100k out
     "openai/gpt-5-mini",
   ]);
-  expect(byTokens.items[0].tokens).toBe("550,000");
-  expect(byTokens.items[0].share).toBe("45.8%");
-  expect(byTokens.total).toBe(1200000);
+  expect(byTokens[0].tokens).toBe("550,000");
+  expect(byTokens[0].share).toBe("45.8%");
 
   const byCalls = rows(SUMMARY, "calls", "en");
-  expect(byCalls.items[0].calls).toBe("800");
+  expect(byCalls[0].calls).toBe("800");
   const byCost = rows(SUMMARY, "cost", "zh");
-  expect(byCost.sortLabel).toBe("费用");
-  expect(byCost.items[0].model).toBe("kimi/kimi-k2");
+  expect(byCost[0].model).toBe("kimi/kimi-k2");
 });
 
 test("numbers are formatted the way a person reads them", () => {
@@ -126,29 +148,27 @@ test("numbers are formatted the way a person reads them", () => {
   expect(pct(1, 3)).toBe("33.3%");
 });
 
-/* 5. nothing may break on data that is missing, zero or empty. */
+/* 6. nothing may break on data that is missing, zero or empty. */
 test("empty data does not break the page", () => {
   const empty = tiles({}, "en");
   expect(empty.map((t) => t.value)).toEqual(["0", "0", "0", "$0"]);
   expect(empty[1].sub).toBe("of the calls 0%");
   expect(() => rows({ models: [] }, "tokens", "en")).not.toThrow();
-  expect(rows({ models: [] }, "tokens", "en").items).toEqual([]);
-  expect(rows(null, "cost", "zh").items).toEqual([]);
+  expect(rows({ models: [] }, "tokens", "en")).toEqual([]);
+  expect(rows(null, "cost", "zh")).toEqual([]);
   // a model with no cost recorded shares nothing: 0%, not a fake 100%
-  expect(rows({ models: [{ model: "x" }] }, "cost", "en").items[0].share).toBe("0%");
+  expect(rows({ models: [{ model: "x" }] }, "cost", "en")[0].share).toBe("0%");
   // no NaN anywhere, in any language
   const text = JSON.stringify([
-    tiles({}, "en"), tiles({}, "zh"), rows({}, "tokens", "en"), header({}, "zh"), header(null, "en"),
+    tiles({}, "en"), tiles({}, "zh"), rows({}, "tokens", "en"), V.since({}, "zh"),
   ]);
   expect(text).not.toMatch(/NaN|undefined/);
 });
 
 test("the page says what it does not know", () => {
-  const en = header(SUMMARY, "en");
-  expect(en.empty).toBe(false);
-  expect(en.disclaimer).toMatch(/everything magpie recorded/);
-  expect(header({}, "en").empty).toBe(true);
-  expect(header({}, "zh").emptyText).toBe("这个区间没有调用");
+  expect(V.text("en").disclaimer).toMatch(/everything magpie recorded/);
+  expect(V.text("zh").empty).toBe("这个区间没有调用");
+  expect(V.text("zh").disclaimer).toMatch(/magpie 记下的全部用量/);
   // no tier anywhere: magpie records the model that answered
   const src = read("app.js") + read("view.js");
   expect(src).not.toMatch(/\btier\b/);

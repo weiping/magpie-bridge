@@ -76,7 +76,11 @@ const TEXT = {
     more: (n) => "and " + n + " more",
     decisions: "Recent decisions",
     classifier: "Classifier",
-    distribution: "By tier, reason, harness",
+    distribution: "Distributions",
+    distTier: "by tier",
+    distReason: "by reason",
+    distHarness: "by harness",
+    distArm: "by arm",
     arms: "Two arms, and the calibration",
     window: "Window",
     restart: "restart mbridge",
@@ -129,7 +133,11 @@ const TEXT = {
     more: (n) => "还有 " + n + " 个",
     decisions: "最近判档",
     classifier: "分类器",
-    distribution: "按档位、reason、harness",
+    distribution: "分布",
+    distTier: "按档位",
+    distReason: "按 reason",
+    distHarness: "按 harness",
+    distArm: "按 arm",
     arms: "两臂与校准",
     window: "区间",
     restart: "重启 mbridge",
@@ -571,14 +579,11 @@ function render(data) {
   tabs.appendChild(el("span", { class: "muted", text: t.window }));
   root.appendChild(tabs);
 
-  root.appendChild(distribution(t.distribution + " · tier", w.tiers,
-    Object.values(w.tiers || {}).reduce((a, b) => a + b, 0)));
-  root.appendChild(distribution(t.distribution + " · reason", w.reasons,
-    Object.values(w.tiers || {}).reduce((a, b) => a + b, 0)));
-  root.appendChild(distribution(t.distribution + " · harness", w.harnesses,
-    Object.values(w.tiers || {}).reduce((a, b) => a + b, 0)));
-  root.appendChild(distribution(t.distribution + " · arm", w.arms,
-    Object.values(w.arms || {}).reduce((a, b) => a + b, 0)));
+  const turns = Object.values(w.tiers || {}).reduce((a, b) => a + b, 0);
+  root.appendChild(distribution(t.distTier, w.tiers, turns));
+  root.appendChild(distribution(t.distReason, w.reasons, turns));
+  root.appendChild(distribution(t.distHarness, w.harnesses, turns));
+  root.appendChild(distribution(t.distArm, w.arms, Object.values(w.arms || {}).reduce((a, b) => a + b, 0)));
   if (w.hints) root.appendChild(el("div", { class: "muted", text: "hint × " + w.hints }));
 
   root.appendChild(classifierPanel(w));

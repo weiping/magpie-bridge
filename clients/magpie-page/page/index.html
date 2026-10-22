@@ -9,49 +9,55 @@
 <script src="view.js"></script>
 </head>
 <body>
-<main id="root" class="root">
+<main class="root">
   <header class="head">
-    <h1 id="title" class="title">mbridge</h1>
-    <p id="subtitle" class="subtitle"></p>
+    <h1 data-t="title">mbridge</h1>
+    <p class="subtitle" data-t="subtitle"></p>
+    <p class="since" id="since"></p>
   </header>
 
   <div class="bar">
-    <div id="periods" class="segmented"></div>
-    <div id="sorts" class="segmented"></div>
+    <div class="segmented" id="periods">
+      <button type="button" data-period="today" aria-selected="false"></button>
+      <button type="button" data-period="7d" aria-selected="false"></button>
+      <button type="button" data-period="30d" aria-selected="false"></button>
+    </div>
+    <div class="segmented" id="sorts">
+      <button type="button" data-sort="tokens" aria-selected="false"></button>
+      <button type="button" data-sort="calls" aria-selected="false"></button>
+      <button type="button" data-sort="cost" aria-selected="false"></button>
+    </div>
   </div>
 
-  <section id="tiles" class="tiles"></section>
+  <section class="tiles" id="tiles"></section>
 
   <section class="models">
-    <div class="models-head">
-      <h2 id="models-label" class="label"></h2>
-      <span id="models-sort" class="muted"></span>
-    </div>
+    <h2 data-t="models">by model</h2>
     <table class="table">
       <thead>
         <tr>
-          <th id="th-model"></th>
-          <th class="num" id="th-calls"></th>
-          <th class="num" id="th-tokens"></th>
-          <th class="num" id="th-cost"></th>
+          <th data-t="model">model</th>
+          <th class="num" data-t="calls">calls</th>
+          <th class="num" data-t="tokens">tokens</th>
+          <th class="num" data-t="cost">cost</th>
         </tr>
       </thead>
       <tbody id="rows"></tbody>
     </table>
-    <p id="empty" class="muted empty"></p>
+    <p class="muted empty" id="empty" hidden></p>
   </section>
 
   <section class="notes">
-    <p id="disclaimer" class="note"></p>
+    <p class="note" data-t="disclaimer"></p>
     <p class="note">
-      <span id="status-label"></span>
-      <span id="status-addr" class="addr" title="select and copy it"></span>
-      <span id="restart-label"></span>
-      <code class="cmd">mbridge service restart</code>
+      <span id="status"></span>
+      <span class="addr" id="addr" title="select and copy it"></span>
+      <span id="restart"></span>
+      <code class="cmd" id="cmd"></code>
     </p>
   </section>
 
-  <p id="error" class="error"></p>
+  <p class="error" id="error" hidden></p>
 </main>
 <script src="app.js" defer></script>
 </body>

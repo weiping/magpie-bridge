@@ -1,5 +1,5 @@
-/* Only magpie's own variables, so the page follows the window's theme
-   in both light and dark without knowing either. */
+/* Only magpie's own variables, so the page follows the window's theme in
+   both light and dark without knowing either. */
 .root {
   --pad: 12px;
   padding: var(--pad);
@@ -7,30 +7,31 @@
   color: var(--magpie-fg, #1a1a1a);
   background: var(--magpie-bg, transparent);
 }
-.title { margin: 0; font-size: 1.05em; font-weight: 600; }
-.subtitle { margin: 2px 0 10px; color: var(--magpie-fg-muted, #6b6b6b); }
+h1 { margin: 0; font-size: 1.05em; font-weight: 600; }
+.subtitle { margin: 2px 0 0; color: var(--magpie-fg-muted, #6b6b6b); }
+.since { margin: 0 0 8px; color: var(--magpie-fg-muted, #6b6b6b); font-size: .9em; }
 .bar { display: flex; gap: 8px; justify-content: space-between; flex-wrap: wrap; margin-bottom: 10px; }
 .segmented { display: flex; gap: 2px; }
-.seg {
-  font: inherit; color: inherit; cursor: pointer;
-  padding: 2px 8px; border-radius: 5px;
+.segmented button {
+  font: inherit; color: inherit; cursor: pointer; padding: 2px 8px; border-radius: 5px;
   border: 1px solid var(--magpie-border, #d8d8d8);
   background: var(--magpie-bg-subtle, transparent);
 }
-.seg-on { background: var(--magpie-accent, #2f6feb); border-color: transparent; color: #fff; }
+.segmented button[aria-selected="true"] {
+  background: var(--magpie-accent, #2f6feb); border-color: transparent; color: #fff;
+}
 .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 14px; }
 .tile {
   padding: 6px 8px; border-radius: 6px;
   border: 1px solid var(--magpie-border, #e3e3e3);
   background: var(--magpie-bg-subtle, transparent);
 }
-.tile-label { color: var(--magpie-fg-muted, #6b6b6b); }
-.tile-value { font-size: 1.15em; font-weight: 600; font-variant-numeric: tabular-nums; }
-.tile-sub { color: var(--magpie-fg-muted, #6b6b6b); }
-.label { margin: 0; font-size: 1em; font-weight: 600; }
-.models-head { display: flex; justify-content: space-between; align-items: baseline; }
+.tile .k { color: var(--magpie-fg-muted, #6b6b6b); }
+.tile .v { font-size: 1.15em; font-weight: 600; font-variant-numeric: tabular-nums; }
+.tile .s { color: var(--magpie-fg-muted, #6b6b6b); }
+.models h2 { margin: 0 0 4px; font-size: 1em; font-weight: 600; }
 .muted { color: var(--magpie-fg-muted, #6b6b6b); }
-.table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+.table { width: 100%; border-collapse: collapse; }
 .table th, .table td { text-align: left; padding: 3px 4px; border-bottom: 1px solid var(--magpie-border, #e3e3e3); }
 .table .num { text-align: right; font-variant-numeric: tabular-nums; }
 .table th.num { text-align: right; color: var(--magpie-fg-muted, #6b6b6b); font-weight: 500; }
@@ -40,7 +41,8 @@
 .empty { margin: 6px 0; }
 .notes { margin-top: 14px; }
 .note { margin: 4px 0; color: var(--magpie-fg-muted, #6b6b6b); }
-/* the address is selectable text, not a link */
+/* the address is selectable text, not a link: the sandbox may navigate
+   itself, but that is a one-way ticket (SP14 §2) */
 .addr { user-select: all; color: var(--magpie-fg, inherit); }
 .cmd { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--magpie-fg, inherit); }
-.error { color: var(--magpie-danger, #b42318); min-height: 1em; margin: 8px 0 0; }
+.error { color: var(--magpie-danger, #b42318); margin: 8px 0 0; }
