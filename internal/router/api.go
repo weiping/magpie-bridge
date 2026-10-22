@@ -83,6 +83,7 @@ type Deps struct {
 
 	mu        sync.Mutex
 	decisions []Event // ring of the last 20 decisions, for /v1/bridge/router
+	live      map[string]Event // key → the last decision that judged it (SP14 §C)
 }
 
 // Register mounts the §6.4 endpoints. Auth needs nothing extra: the
@@ -246,7 +247,62 @@ func (d *Deps) Decide(ctx context.Context, in DecideInput) Decided {
 		ev.Kind, ev.ShadowTier = "shadow", decision.Tier
 	}
 	d.log(ev)
+	d.noteLive(in.Key, ev)
 	return res
+}
+
+// noteLive remembers the decision that judged a key: the harness, the
+// agent and the reason are not in the session state, only in the event
+// (SP14 §C, 坑 3).
+func (d *Deps) noteLive(key string, ev Event) {
+	if ev.Kind != "decide" && ev.Kind != "shadow" {
+		return
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.live == nil {
+		d.live = map[string]Event{}
+	}
+	d.live[key] = ev
+}
+
+// LiveWindow is how long a session counts as running (SP14 §C). It is a
+// display window, not a storage policy.
+const LiveWindow = 5 * time.Minute
+
+// LiveCards are the sessions running right now, with the decision that
+// judged each of them (SP14 §C).
+func (d *Deps) LiveCards(window time.Duration) []LiveCard {
+	live := []LiveSession{}
+	if d.Sessions != nil {
+		live = d.Sessions.Live(window)
+	}
+	cards := make([]LiveCard, 0, len(live))
+	if len(live) == 0 {
+		return cards
+	}
+	d.mu.Lock()
+	events := make(map[string]Event, len(d.live))
+	for k, v := range d.live {
+		events[k] = v
+	}
+	d.mu.Unlock()
+	for _, s := range live {
+		card := LiveCard{LiveSession: s}
+		if ev, ok := events[s.Key]; ok {
+			card.Harness = ev.Harness
+			card.Agent = ev.Agent
+			card.Reason = ev.Reason
+			card.TierConfidence = ev.TierConfidence
+			card.LatencyMs = ev.LatencyMs
+			card.ClassifyMs = ev.ClassifyMs
+		}
+		if tc, ok := d.Config.Tiers[s.Tier]; ok {
+			card.Group = tc.Group
+		}
+		cards = append(cards, card)
+	}
+	return cards
 }
 
 // generatedTurnID names a turn the harness did not: "gw-" and 8 hex chars.
@@ -445,6 +501,7 @@ func (d *Deps) status(w http.ResponseWriter, r *http.Request) {
 		"service":          v.Service,
 		"config_error":     v.ConfigError,
 		"config":           v.Config,
+		"live":             v.Live,
 	})
 }
 

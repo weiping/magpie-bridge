@@ -116,6 +116,7 @@ type StatusView struct {
 	Service       ServiceStatus `json:"service"`
 	ConfigError   string        `json:"config_error"`
 	Config        PageConfig    `json:"config"`
+	Live          []LiveCard    `json:"live"`
 }
 
 // StatusView gathers the process's own state. The parts that need the
@@ -144,5 +145,6 @@ func (d *Deps) StatusView() StatusView {
 	if err := ConfigError(); err != nil {
 		v.ConfigError = err.Error()
 	}
+	v.Live = d.LiveCards(LiveWindow)
 	return v
 }
