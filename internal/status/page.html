@@ -204,7 +204,11 @@ function el(tag, attrs, kids) {
     else if (k === "html") n.innerHTML = v;
     else n.setAttribute(k, v);
   }
-  for (const kid of [].concat(kids || [])) if (kid) n.appendChild(kid);
+  for (const kid of [].concat(kids || [])) {
+    if (kid === undefined || kid === null || kid === false) continue;
+    // appendChild takes nodes, not strings
+    n.appendChild(typeof kid === "object" ? kid : document.createTextNode(String(kid)));
+  }
   return n;
 }
 

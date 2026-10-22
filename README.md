@@ -22,6 +22,8 @@ Magpie Bridge 和官方 [magpie](https://github.com/yetone/magpie) 并排运行�
 | Claude Code 插件 `magpie-bridge`（`clients/claude-code/`） | Claude Code | 0.3.3，默认连 3426 |
 | Pi 包 `@weiping/pi-magpie-bridge`（`clients/pi/`） | Pi | 0.3.1，自报工具统计 |
 | Codex 插件 `magpie-bridge-codex`（`clients/codex/`） | Codex | 0.2.1，配合 `codex -p mbridge` |
+| 状态页 `http://127.0.0.1:3426/status`（mbridge 自己服务） | 所有 Agent | 进程、生效中的配置、正在选档的会话、分类器、分档统计 |
+| magpie 页面插件 `clients/magpie-page/` | magpie 窗口 | magpie 记下的用量速览 |
 | 报表、复核与校准（`mbridge router report`、`calibrate`） | 所有 Agent | 成本取 magpie 的 `usage --csv` |
 
 ## 快速开始
@@ -365,7 +367,49 @@ Magpie Bridge 和 magpie 之间只走公开接口（HTTP、CLI、usage CSV），
 make build                        # ./mbridge，纯 Go，不需要 cgo
 make test                         # go vet、go test 和安装脚本的测试
 cd clients/pi && npx vitest run   # Pi 扩展
+bun test clients/magpie-page      # magpie 页面插件
 ```
+
+## mbridge 自己的状态页
+
+`mbridge serve` 在自己的地址上服务一个网页：
+
+```sh
+open http://127.0.0.1:3426/status     # 或直接在浏览器里打开
+mbridge status                          # 同一批结论的终端版
+mbridge status --json                   # 同一批结论，结构化输出
+mbridge service restart                 # 重启（页面上也有一个按钮）
+```
+
+页面上有：进程与依赖（版本、pid、运行时长、实际 listen、service、magpie）、
+**应用默认值之后**的 `router.json`（不显示实验分组的 salt）、最近 5 分钟在走
+mbridge 的会话卡片、最近判档、分类器（配置 / 覆盖率 / 失败分类 / 耗时 / 校准表）、
+分档与 reason 统计、两臂对比。区间 1 天 / 7 天 / 30 天，默认 7 天。
+
+几处它不肯含糊的地方：
+
+- 卡片上的档是「这一轮送去了哪」，不是「该用哪」；分类器的建议另起一列。
+- `Classifier` 为空 = 那一轮**没问**分类器（被钉死的 agent、计划模式、压缩轮次），
+  这一轮整行灰掉，不进覆盖率、压缩率、不满意率的分母。
+- 分类耗时来自 `classify_ms`；拿不到（旧事件）显示「—」，**不会**拿判档总耗时冒充。
+- 校准表空段画「—」而不是 0%；分母是「照分类器办的那些轮次」。
+- PR 合并率在页面上是「不含 gh 补全」——页面在进程内算不出来 gh。
+
+重启端点 `POST /v1/bridge/restart` 只认同源请求（`Sec-Fetch-Site: same-origin`
+或 `Origin` 等于 mbridge 自己的主机），其余一律 403，否则任何网页都能反复重启
+本机的 mbridge。本地进程要重启就跑 `mbridge service restart`。
+
+## magpie 窗口里的 mbridge 页面
+
+```sh
+magpie plugin add ./clients/magpie-page     # 文件夹插件：改源码后重开一个 magpie 就是新的
+magpie plugin --json                         # 确认装上了（plugin list 这个子命令不存在）
+```
+
+它只显示 magpie 记下的用量（周期切换、四块数、模型表）——magpie 的页面插件跑在
+`iframe sandbox="allow-scripts"` 里，`connect-src 'none'`，够不着 mbridge，所以
+mbridge 的状态只在页面上给一个可选择的地址。详见
+[`clients/magpie-page/README.md`](clients/magpie-page/README.md)。
 
 ## 参考
 

@@ -508,7 +508,8 @@ func (d *Deps) status(w http.ResponseWriter, r *http.Request) {
 		tiers[string(tier)] = map[string]string{"group": tc.Group, "claude_alias": tc.ClaudeAlias}
 	}
 	d.mu.Lock()
-	decisions := append([]Event(nil), d.decisions...)
+	// an empty ring is [], never null: the page reads this directly
+	decisions := append([]Event{}, d.decisions...)
 	d.mu.Unlock()
 	// SP14 §A/§B: the process and its configuration, as they are in force
 	v := d.StatusView()

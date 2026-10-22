@@ -247,18 +247,19 @@ func (s *Sessions) evictLocked(now time.Time) {
 }
 
 // LiveSession is one session that is being routed right now (SP14 §C).
+// The JSON names are the page's: it reads these keys by name.
 type LiveSession struct {
-	Key           string
-	Session       string
-	Tier          Tier
-	Turns         int
-	Tools         int
-	ToolFailures  int
-	EscalatedLeft int
-	LowerStreak   int
-	Pinned        bool
-	Parent        string
-	LastAt        time.Time
+	Key           string    `json:"key"`
+	Session       string    `json:"session"`
+	Tier          Tier      `json:"tier"`
+	Turns         int       `json:"turns"`
+	Tools         int       `json:"tools"`
+	ToolFailures  int       `json:"tool_failures"`
+	EscalatedLeft int       `json:"escalated_left"`
+	LowerStreak   int       `json:"lower_streak"`
+	Pinned        bool      `json:"pinned"`
+	Parent        string    `json:"parent,omitempty"`
+	LastAt        time.Time `json:"last_at"`
 }
 
 // LiveCard is a LiveSession with the last decision that judged it.

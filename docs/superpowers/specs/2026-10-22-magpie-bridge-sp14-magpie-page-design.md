@@ -589,6 +589,32 @@ mbridge（Go）：
 8. 真机验收（两条）。
 9. 发 npm（§9.3）。
 
+## 9.1 实现时定下的（实现已落地，spec 回填）
+
+1. **`Event.ClassifyMs`** 已加（`json:"classify_ms,omitempty"`），成功和失败都记，
+   在 `Decide` 里分类前后各取一次时间。旧 `router.jsonl` 读出来是 0，页面显示「—」。
+2. **`Sessions.Live(window time.Duration) []LiveSession`**：只认 `tier.Tier != ""` 的
+   条目、跳过 `lastAt` 零值的（`InheritFrom` 造出来的）、**先按窗口过滤再截断到 20 条**
+   （`Sessions` 只在 ≥1024 条时才淘汰闲置的，过滤必须在截断之前）。空结果返回 `[]`。
+   卡片另带 `LiveTotal(window)`，页面才知道「还有 N 个」。
+3. **`SessionOfKey(key)`**：从**最后一个** `|` 切，后缀是 24 位小写十六进制才算
+   `firstWords`。**已按 §C 坑 1 实现**，配一条「session id 本身含 `|`」的测试。
+4. **端点的 `experiment` 字段去掉了 `salt`**：端点只发 `config.experiment`
+   （`enabled`/`router_percent`/`control_tier`）。谁读这个端点都不读 salt
+   （Claude Code 的 hook 只读 `turn_budget_ms`），所以**私密量不出进程**。
+5. **聚合器的形状**：`Aggregator.Run` 每 30 秒读 `router.jsonl` 的**新增行**
+   （记偏移量；只取整行，半行留到下次），拉一次 `magpie usage 30d` 的 CSV，
+   三个窗口（1d/7d/30d）各算一次存起来，页面只读。
+6. **`/status` 是一张自包含的 `page.html`**（`go:embed`），内联 CSS 与 JS，
+   无外部资源——mbridge 自己服务它，不受 magpie 沙盒那套 CSP 管。
+7. **重启用 POST `POST /v1/bridge/restart`**：同源判断是
+   `Host` 必须是 loopback（防 DNS rebinding）**且**
+   （`Sec-Fetch-Site: same-origin` 或 `Origin` 的主机等于 `Host` 或 `listen`）。
+   **本地非浏览器进程走端点也是 403** —— 它们该跑的是 `mbridge service restart`；
+   spec §3.3 的「本地非浏览器进程不受影响」说的是「不受限制」，不是「也放行」。
+8. **`proxy.Handler(target, listen, deps)`** 多收一个 `listen`：同源判断要有真实的地址，
+   且 `router.json` 读不出来时（`deps` 为 nil）状态页与重启端点照样挂。
+
 ## 9. 已定
 
 1. **状态页路径 `/status`**，不占 `/`：`/` 是反向代理的根，mbridge 自己要往那儿过的

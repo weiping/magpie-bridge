@@ -2,6 +2,7 @@ package router
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -127,4 +128,35 @@ func TestTheLiveWindowIsFiveMinutes(t *testing.T) {
 // toolStats is the gateway's count of tool calls and failures.
 func toolStats(calls, failures int) wire.ToolStats {
 	return wire.ToolStats{Calls: calls, Failures: failures}
+}
+
+// TestTheCardIsJsonTheWayThePageReadsIt: the page reads these keys by
+// name, so the JSON names are part of the contract.
+func TestTheCardIsJsonTheWayThePageReadsIt(t *testing.T) {
+	d, _, _ := testDeps(t, &Verdict{Tier: TierBalanced, TierConfidence: 0.82})
+	d.Decide(context.Background(), DecideInput{
+		Session: "sess", Key: "sess", Harness: "codex", Agent: "main", Prompt: "hello there",
+	})
+	b, err := json.Marshal(d.LiveCards(LiveWindow))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cards []map[string]any
+	if err := json.Unmarshal(b, &cards); err != nil {
+		t.Fatal(err)
+	}
+	if len(cards) != 1 {
+		t.Fatalf("cards %s", b)
+	}
+	card := cards[0]
+	for _, key := range []string{"key", "session", "tier", "turns", "tools", "tool_failures",
+		"escalated_left", "lower_streak", "pinned", "last_at", "harness", "agent", "group",
+		"reason", "tier_confidence", "latency_ms", "classify_ms"} {
+		if _, ok := card[key]; !ok {
+			t.Errorf("the card has no %q: %s", key, b)
+		}
+	}
+	if card["session"] != "sess" || card["harness"] != "codex" {
+		t.Fatalf("card %s", b)
+	}
 }
