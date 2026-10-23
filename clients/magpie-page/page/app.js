@@ -66,7 +66,10 @@
   function renderView(data) {
     // When mbridge is not running or not installed (empty options or no valid snapshot with a running pid):
     // Display the setup and installation guide instead of empty dashboard!
-    const isLive = data && data.pid && (data.service ? data.service.running !== false : true);
+    // A snapshot is considered active only if mbridge is running and actively publishing heartbeats
+    const atTime = data && data.at ? new Date(data.at).getTime() : 0;
+    const isFresh = atTime && !isNaN(atTime) ? (Date.now() - atTime < 45000) : false;
+    const isLive = Boolean(data && data.pid && (data.service ? data.service.running !== false : true) && isFresh);
     if (!isLive) {
       V.renderGuide(null, lang);
       return;

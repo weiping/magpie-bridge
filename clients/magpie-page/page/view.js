@@ -10,7 +10,7 @@ const REFRESH_MS = 5000;
 // built the first time, so a stale tab shows an old version here (SP14 §2:
 // the plugin page is a one-way ticket — toggle the plugin off and on to
 // get a new frame).
-const PAGE_VERSION = "0.5.3";
+const PAGE_VERSION = "0.1.1";
 
 const TEXT = {
   en: {
