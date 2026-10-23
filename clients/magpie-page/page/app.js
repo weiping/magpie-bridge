@@ -16,7 +16,6 @@
   }
 
   let opts = {};
-  const current = { window: "7d" };
 
   function fail(message) {
     const root = document.getElementById("root");
@@ -40,23 +39,9 @@
     }
   }
 
-  async function setWindow(kind) {
-    current.window = kind;
-    try {
-      const o = (await magpie.options.get()) || {};
-      o.period = kind;
-      await magpie.options.set(o);
-      // Ask mbridge to immediately publish the updated window
-      await command("refresh");
-    } catch {}
-  }
-
   async function readOptions() {
     try {
       opts = (await magpie.options.get()) || {};
-      if (opts.period && (opts.period === "1d" || opts.period === "7d" || opts.period === "30d")) {
-        current.window = opts.period;
-      }
       return opts.mbridge || null;
     } catch (e) {
       return null;
@@ -76,18 +61,6 @@
     }
 
     V.render(data);
-
-    // Wire up tab switching in the rendered view
-    const tabButtons = document.querySelectorAll(".tabs button");
-    tabButtons.forEach((btn) => {
-      const kind = btn.textContent.trim();
-      if (kind === "1d" || kind === "7d" || kind === "30d") {
-        btn.onclick = async () => {
-          await setWindow(kind);
-          tabButtons.forEach((b) => b.setAttribute("aria-pressed", String(b.textContent.trim() === kind)));
-        };
-      }
-    });
 
     // Wire up the restart button in the rendered view
     const restartBtn = document.querySelector(".restart");

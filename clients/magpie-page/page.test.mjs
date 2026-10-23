@@ -142,7 +142,7 @@ test("formatters format numbers gracefully", () => {
    options (SP14 §7). */
 test("the page asks mbridge for fresh numbers and for a restart", () => {
   const app = read("app.js");
-  expect(app).toMatch(/command\("refresh"\)/);
+  expect(app).not.toMatch(/command\("refresh"\)/);
   expect(app).toMatch(/command\("restart"\)/);
   expect(app).toMatch(/o\.cmd =/);
   // the page reads mbridge's snapshot out of the options
