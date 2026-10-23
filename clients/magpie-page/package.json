@@ -1,6 +1,6 @@
 {
-  "name": "@weiping/mbridge-page",
-  "version": "0.5.3",
+  "name": "@weiping/mbridge",
+  "version": "0.1.0",
   "description": "鹊桥（Magpie Bridge）模型选档守护进程在 magpie 窗口内的状态与管理插件：逐轮自动选档、分类器置信度、Claude Code/Codex/Pi 接入与实时数据监控大盘。",
   "license": "MIT",
   "keywords": [

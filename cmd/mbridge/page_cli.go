@@ -23,7 +23,7 @@ import (
 // the page owns "period", "sort" and "cmd", mbridge owns "mbridge".
 const (
 	// pagePluginSpec is the magpie plugin mbridge talks to.
-	pagePluginSpec = "@weiping/mbridge-page"
+	pagePluginSpec = "@weiping/mbridge"
 	// pagePollInterval is how often mbridge looks at the options: for a
 	// command from the page, and for a snapshot that needs publishing.
 	pagePollInterval = 5 * time.Second

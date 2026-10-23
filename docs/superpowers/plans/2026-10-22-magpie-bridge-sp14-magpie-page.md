@@ -762,7 +762,7 @@ Expected: FAIL —— `clients/magpie-page/package.json` 不存在。
 
 - [ ] **Step 3: 实现 `package.json` 与 `page/index.html`**
 
-`package.json`：`name` 为 `mbridge-page`（发 npm 时是 `@weiping/mbridge-page`），`magpie.page` 为 `{title:"mbridge", titles:{zh:"mbridge","zh-TW":"mbridge",ja:"mbridge",de:"mbridge"}, file:"page/index.html", icon:"page/icon.svg"}`，`magpie.permissions` 为 `["usage:summary"]`，**没有 `main`、没有 `exports`**。
+`package.json`：`name` 为 `mbridge-page`（发 npm 时是 `@weiping/mbridge`），`magpie.page` 为 `{title:"mbridge", titles:{zh:"mbridge","zh-TW":"mbridge",ja:"mbridge",de:"mbridge"}, file:"page/index.html", icon:"page/icon.svg"}`，`magpie.permissions` 为 `["usage:summary"]`，**没有 `main`、没有 `exports`**。
 
 `page/index.html`：`<script src="_magpie/bridge.js">`、`<script src="view.js">`、`<script src="app.js" defer>`；无内联脚本与内联样式；骨架含周期切换（今天 / 7 天 / 30 天）、四块（调用 / 错误占调用比 / Token / 费用）、模型表（按 token·调用·费用排序，带占比条）。
 
@@ -807,7 +807,7 @@ git commit -m "feat: add the magpie page plugin for mbridge's usage"
 
 - [ ] **Step 1: 改 README**
 
-- `clients/` 一节：写「`magpie plugin add ./clients/magpie-page`」，以及发布 npm 之后的 `magpie plugin add @weiping/mbridge-page`；写清楚这个页面只有用量速览。
+- `clients/` 一节：写「`magpie plugin add ./clients/magpie-page`」，以及发布 npm 之后的 `magpie plugin add @weiping/mbridge`；写清楚这个页面只有用量速览。
 - 新的一节讲 mbridge 自己的状态页：`http://127.0.0.1:3426/status`、`mbridge status`、`mbridge status --json`、`mbridge service restart`。
 
 - [ ] **Step 2: 把 spec 回填**
@@ -841,11 +841,11 @@ git add -A && git commit -m "test: verify the status page and the magpie page on
 ### Task 11: 发 npm（可选，最后做）
 
 **Files:**
-- Modify: `clients/magpie-page/package.json`（`name` 改成 `@weiping/mbridge-page`，加 `version`、`repository`、`license`）
+- Modify: `clients/magpie-page/package.json`（`name` 改成 `@weiping/mbridge`，加 `version`、`repository`、`license`）
 
 **Interfaces:**
 - Consumes: Task 9 的 `clients/magpie-page/`。
-- Produces: npm 上的 `@weiping/mbridge-page`；`magpie plugin add @weiping/mbridge-page` 可用。
+- Produces: npm 上的 `@weiping/mbridge`；`magpie plugin add @weiping/mbridge` 可用。
 
 - [ ] **Step 1: 先问作者有没有 `@weiping` 这个 scope**
 
@@ -858,7 +858,7 @@ Expected: 打出一个 tarball。
 
 - [ ] **Step 3: 发布并验收**
 
-Run: `npm publish --access public`，然后在隔离 HOME 里 `magpie plugin add @weiping/mbridge-page`，`magpie plugin --json` 能看到它。
+Run: `npm publish --access public`，然后在隔离 HOME 里 `magpie plugin add @weiping/mbridge`，`magpie plugin --json` 能看到它。
 
 - [ ] **Step 4: 提交**
 

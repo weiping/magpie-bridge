@@ -402,7 +402,7 @@ mbridge 的会话卡片、最近判档、分类器（配置 / 覆盖率 / 失败
 ## magpie 窗口里的 mbridge 页面
 
 ```sh
-magpie plugin add @weiping/mbridge-page     # 已发布到 npm
+magpie plugin add @weiping/mbridge     # 已发布到 npm
 magpie plugin add ./clients/magpie-page      # 或者从源码装：改完重开一个 magpie 就是新的
 magpie plugin --json                         # 确认装上了（plugin list 这个子命令不存在）
 ```

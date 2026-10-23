@@ -106,7 +106,7 @@ pi install npm:@weiping/pi-mbridge
 已发布至 npm，在 magpie 中直接安装即可：
 
 ```bash
-magpie plugin add @weiping/mbridge-page
+magpie plugin add @weiping/mbridge
 ```
 
 或从源码目录加载：

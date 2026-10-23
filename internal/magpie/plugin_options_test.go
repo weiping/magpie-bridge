@@ -28,7 +28,7 @@ func fakeCLI(t *testing.T, read string, written *[]string) *Client {
 
 func TestPluginOptionsReadsTheObject(t *testing.T) {
 	c := fakeCLI(t, `{"period":"7d","mbridge":{"seq":12}}`, nil)
-	opts, err := c.PluginOptions(context.Background(), "@weiping/mbridge-page")
+	opts, err := c.PluginOptions(context.Background(), "@weiping/mbridge")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func TestPluginOptionsReadsTheObject(t *testing.T) {
 
 func TestPluginOptionsWithoutAnyIsEmpty(t *testing.T) {
 	c := fakeCLI(t, "No options set. Its package suggests:\n{\n  \"period\": \"7d\"\n}\n", nil)
-	opts, err := c.PluginOptions(context.Background(), "@weiping/mbridge-page")
+	opts, err := c.PluginOptions(context.Background(), "@weiping/mbridge")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestPluginOptionsWithoutAnyIsEmpty(t *testing.T) {
 func TestPluginSetOptionsWritesTheWholeObject(t *testing.T) {
 	var written []string
 	c := fakeCLI(t, "{}", &written)
-	err := c.PluginSetOptions(context.Background(), "@weiping/mbridge-page",
+	err := c.PluginSetOptions(context.Background(), "@weiping/mbridge",
 		map[string]any{"period": "today", "mbridge": map[string]any{"seq": 3}})
 	if err != nil {
 		t.Fatal(err)
@@ -141,9 +141,9 @@ func TestTheSnapshotGoesUnderTheMbridgeKey(t *testing.T) {
 func TestAMissingPluginIsNotAnErrorToReport(t *testing.T) {
 	c := New("")
 	c.Run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
-		return []byte(`magpie: no plugin "@weiping/mbridge-page"`), &Error{Op: "plugin options", Msg: `no plugin "@weiping/mbridge-page"`}
+		return []byte(`magpie: no plugin "@weiping/mbridge"`), &Error{Op: "plugin options", Msg: `no plugin "@weiping/mbridge"`}
 	}
-	_, err := c.PluginOptions(context.Background(), "@weiping/mbridge-page")
+	_, err := c.PluginOptions(context.Background(), "@weiping/mbridge")
 	if err == nil {
 		t.Fatal("no error")
 	}
@@ -163,8 +163,8 @@ func TestTheOptionsCommandIsTheOneMagpieTakes(t *testing.T) {
 		seen = args
 		return []byte("{}"), nil
 	}
-	c.PluginOptions(context.Background(), "@weiping/mbridge-page")
-	if strings.Join(seen, " ") != "plugin options @weiping/mbridge-page" {
+	c.PluginOptions(context.Background(), "@weiping/mbridge")
+	if strings.Join(seen, " ") != "plugin options @weiping/mbridge" {
 		t.Fatalf("seen %v", seen)
 	}
 }

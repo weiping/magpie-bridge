@@ -191,7 +191,7 @@ func TestTheBridgePublishesAgainWhenThePageOverwroteIt(t *testing.T) {
 // TestTheBridgeIsQuietWhenThePageIsNotInstalled: the user may never
 // install it, and that is not something to log every five seconds.
 func TestTheBridgeIsQuietWhenThePageIsNotInstalled(t *testing.T) {
-	f := &fakeOptions{readErr: &magpie.Error{Op: "plugin options", Msg: `no plugin "@weiping/mbridge-page"`}}
+	f := &fakeOptions{readErr: &magpie.Error{Op: "plugin options", Msg: `no plugin "@weiping/mbridge"`}}
 	b, _ := testBridge(t, f, map[string]any{"version": "0.3.5"})
 	b.tick(context.Background())
 	if f.writes != 0 {
