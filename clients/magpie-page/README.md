@@ -1,44 +1,117 @@
-# mbridge's page for magpie
+# 鹊桥 Magpie Bridge · magpie 窗口页面插件
 
-magpie 窗口侧栏 Plugins 组里的一个页面：magpie 记下的用量速览。
+鹊桥（Magpie Bridge）在 magpie 窗口侧边栏中的交互大盘与引导插件。
 
-## 它显示什么
+## 功能说明
 
-- **周期切换**（今天 / 7 天 / 30 天）与**排序**（Token / 调用 / 费用）
-- 四块：调用、错误（占调用的比例）、Token、费用
-- 模型表：按所选排序，每行一条占比条
-- 每 60 秒刷新一次，周期与排序记在 magpie 的 options 里
+鹊桥是运行在官方 magpie 网关身旁的智能模型路由守护进程（默认监听 `127.0.0.1:3426`），本插件在 magpie 窗口内提供实时看板：
 
-## 它不显示什么
+1. **自动状态感知与双态界面**：
+   - **运行中**：呈现与 `http://127.0.0.1:3426/status` 实时对齐的完整大盘（核心指标、1d/7d/30d 区间切换、正在选档会话、判档流水、分类器置信度打分、分布直方图、两臂对比及一键重启）。
+   - **未安装或未启动**：自动切换为环境自适应的安装与启动指引。
+2. **逐轮智能选档**：按任务难度在 `fast` / `balanced` / `performance` 三档间自动调配模型。
+3. **TypeSafe Jev 分类器**：对任务复杂度提供置信度评估，低置信度自动升档。
+4. **升降档迟滞保护与会话继承**：上一轮不满意自动升档，连续低难度才平滑降档。
+5. **校准与 A/B 实验**：内置两臂对照组与置信度阈值建议。
 
-**mbridge 自己的状态不在这里。** magpie 的页面插件跑在 `iframe sandbox="allow-scripts"`
-里，CSP 是 `connect-src 'none'`：它连不上 `127.0.0.1:3426`，也读不了 `router.json`。
-所以状态、报表、重启都在 mbridge 自己的状态页：
+---
 
-    http://127.0.0.1:3426/status
+## 安装与初始化（mbridge）
 
-页面上把那行地址做成**可选择的文字**而不是链接：沙盒允许导航自己，但那是单程票
-（magpie 的 sidebar 不会把 frame 的 src 重置回来）。
+### 1. 安装 mbridge 并注册自启服务
 
-**不做档位归因**：magpie 记下的是最终回答的模型，`usage:summary` 里没有档位。
+- **macOS / Linux**：
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/weiping/mbridge/main/install.sh | sh
+  ```
 
-## 装法
+- **Windows（PowerShell）**：
+  ```powershell
+  irm https://raw.githubusercontent.com/weiping/mbridge/main/install.ps1 | iex
+  ```
 
-文件夹插件，改了源码在终端重开一个 `magpie` 命令就是新的：
+### 2. 初始化 magpie 路由组与配置
 
-    magpie plugin add ./clients/magpie-page
+```bash
+mbridge router init --preset cn --groups-only
+```
+*(也可选择 `--preset frontier` 或 `anthropic` 预设)*
 
-确认装上了（`plugin list` 这个子命令不存在，用 `--json`）：
+### 3. 启动与验证
 
-    magpie plugin --json
+```bash
+# 检查状态
+mbridge status
 
-## 这个包必须永远是纯页面插件
+# 或手动前台启动
+mbridge serve
+```
 
-`package.json` 里**没有** `main`、**没有** `exports`，这不是偏好：
-magpie 的 `magpie.options.set()` 对纯窗口插件（有 `page`、无 `main`/`exports`）
-不重启插件宿主，而 CLI 写 options 每次都会。一旦给这个包加了 `main` 或 `exports`，
-用户每点一次周期切换就可能把所有插件重启一轮。`page.test.mjs` 里有一条守着。
+---
 
-## 测试
+## Agent 客户端插件安装与使用
 
-    bun test clients/magpie-page
+### 1. Claude Code（≥ v2.1.287）
+
+```bash
+# 安装插件
+claude plugin marketplace add weiping/mbridge
+claude plugin install mbridge@mbridge
+```
+
+项目配置：在项目根目录 `.claude/settings.json` 中配置：
+```json
+{
+  "model": "group/mbridge[1m]"
+}
+```
+
+### 2. Codex
+
+```bash
+# 安装插件（推荐带 --sparse 避免克隆完整历史）
+codex plugin marketplace add weiping/mbridge --sparse .agents --sparse clients/codex
+codex plugin add mbridge@mbridge
+```
+
+启动与使用：
+```bash
+# 通过 mbridge 配置文件启动
+codex -p mbridge
+```
+或在项目 `.codex/config.toml` 中配置：
+```toml
+model = "group/mbridge"
+```
+
+### 3. Pi
+
+```bash
+# 安装扩展
+pi install npm:@weiping/pi-mbridge
+```
+
+项目配置：在项目根目录 `.pi/settings.json` 中配置：
+```json
+{
+  "defaultProvider": "magpie",
+  "defaultModel": "group/mbridge"
+}
+```
+
+---
+
+## 本插件安装
+
+已发布至 npm，在 magpie 中直接安装即可：
+
+```bash
+magpie plugin add @weiping/mbridge-page
+```
+
+或从源码目录加载：
+```bash
+magpie plugin add ./clients/magpie-page
+```
+
+*(纯窗口页面插件，不启动 Bun 插件宿主，无额外常驻资源占用)*
