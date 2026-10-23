@@ -150,3 +150,49 @@ test("the page asks mbridge for fresh numbers and for a restart", () => {
   // and it does not fetch anything: the sandbox has no network
   expect(app).not.toMatch(/\bfetch\(/);
 });
+
+/* 8. error protection during tier switches: malformed or partial live
+   cards and decisions never throw or crash the page. */
+test("tier switch rendering is protected against malformed or partial data", () => {
+  // Set up minimal DOM mock for V.render and V.liveCard
+  const makeNode = () => ({
+    textContent: "",
+    className: "",
+    style: {},
+    children: [],
+    appendChild(c) { this.children.push(c); return c; },
+    setAttribute() {},
+    addEventListener() {},
+  });
+  globalThis.document = {
+    createElement: () => makeNode(),
+    createTextNode: (t) => ({ textContent: String(t) }),
+    getElementById: () => makeNode(),
+  };
+
+  expect(() => {
+    V.render(null);
+    V.render({});
+    V.render({
+      version: "0.4.0",
+      pid: 1234,
+      live: [
+        null,
+        undefined,
+        { session: 12345, harness: null, tier: "fast", tier_confidence: "invalid-float", turns: 2 },
+        { session: "abc", agent: "gateway", tier: "performance", tier_confidence: NaN, tools: "bad" },
+      ],
+      decisions: [
+        null,
+        { kind: "decide", t: "invalid-date", session: 999, tier: "balanced", classified_tier: "fast", tier_confidence: "bad", dissatisfied: "nan" },
+      ],
+      window: {
+        tiers: null,
+        reasons: "not-an-object",
+        classify: { error_kinds: null, failures: 2 },
+        calibrate: [null, { score: "tier", bands: [null, { lo: 0, hi: 1, n: "bad", under_rate: "bad" }] }],
+      },
+      config: { fixed_agents: null, tiers: null },
+    });
+  }).not.toThrow();
+});

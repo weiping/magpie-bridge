@@ -4,13 +4,26 @@
 (() => {
 "use strict";
 
+// Capture-phase error shield: prevents WebKit sandboxed "Script error." / ResizeObserver
+// loop notifications or transient data errors during tier switches from killing the page.
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+  window.addEventListener("error", (e) => {
+    e.stopImmediatePropagation();
+    e.preventDefault();
+  }, true);
+  window.addEventListener("unhandledrejection", (e) => {
+    e.stopImmediatePropagation();
+    e.preventDefault();
+  }, true);
+}
+
 const REFRESH_MS = 5000;
 
 // PAGE_VERSION is this page's own build: the sidebar keeps the iframe it
 // built the first time, so a stale tab shows an old version here (SP14 §2:
 // the plugin page is a one-way ticket — toggle the plugin off and on to
 // get a new frame).
-const PAGE_VERSION = "0.1.3";
+const PAGE_VERSION = "0.1.4";
 
 const TEXT = {
   en: {
@@ -214,46 +227,68 @@ function tierChip(tier) {
   return el("span", { class: "chip tier-" + tier, text: tier });
 }
 
+function hasNum(v) {
+  return v !== undefined && v !== null && v !== "" && Number.isFinite(Number(v));
+}
+
+function numFixed(v, d) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n.toFixed(d === undefined ? 2 : d) : T().notMeasured;
+}
+
+function safeArr(a) {
+  return Array.isArray(a) ? a.filter((x) => x !== null && x !== undefined) : [];
+}
+
+function safeObj(o) {
+  return o && typeof o === "object" && !Array.isArray(o) ? o : {};
+}
+
 /* The turns to show: the window's last ones, plus the ones this process
    decided since it started, newest first. Without the window's turns a
    fresh process would show an empty page. */
 function turnsOf(data) {
+  if (!data || typeof data !== "object") return [];
   const out = [];
   const seen = new Set();
   const push = (ev) => {
-    if (!ev || (ev.kind !== "decide" && ev.kind !== "shadow")) return;
-    const id = ev.turn_id || (ev.t + "|" + ev.session + "|" + ev.reason);
+    if (!ev || typeof ev !== "object" || (ev.kind !== "decide" && ev.kind !== "shadow")) return;
+    const id = ev.turn_id || (String(ev.t || "") + "|" + String(ev.session || "") + "|" + String(ev.reason || ""));
     if (seen.has(id)) return;
     seen.add(id);
     out.push(ev);
   };
-  for (const ev of (data.window && data.window.turns) || []) push(ev);
-  for (const ev of data.decisions || []) push(ev);
+  for (const ev of safeArr(data.window && data.window.turns)) push(ev);
+  for (const ev of safeArr(data.decisions)) push(ev);
   out.sort((a, b) => String(b.t || "").localeCompare(String(a.t || "")));
   return out;
 }
 
 function scoreCell(value, asked) {
   if (!asked) return el("div", { class: "off", text: T().notAsked });
-  if (value === undefined || value === null) return el("div", { text: T().notMeasured });
-  return el("div", {}, [bar(value), el("div", { class: "muted", text: value.toFixed(2) })]);
+  if (!hasNum(value)) return el("div", { text: T().notMeasured });
+  const num = Number(value);
+  return el("div", {}, [bar(num), el("div", { class: "muted", text: numFixed(num, 2) })]);
 }
 
 function bar(v) {
+  const num = Number(v);
+  const w = Number.isFinite(num) ? Math.max(0, Math.min(1, num)) * 100 : 0;
   const b = el("div", { class: "bar" });
-  b.appendChild(el("i", { style: "width:" + Math.max(0, Math.min(1, v)) * 100 + "%" }));
+  b.appendChild(el("i", { style: "width:" + w + "%" }));
   return b;
 }
 
 function liveCard(c) {
+  c = safeObj(c);
   const bits = [];
-  if (c.harness) bits.push(c.harness);
-  if (c.agent) bits.push(c.agent);
-  const row2 = el("div", { class: "row2", text: (c.session || "").slice(0, 8) + " · " + (bits.join(" · ") || T().unknown) });
+  if (c.harness) bits.push(String(c.harness));
+  if (c.agent) bits.push(String(c.agent));
+  const row2 = el("div", { class: "row2", text: String(c.session || "").slice(0, 8) + " · " + (bits.join(" · ") || T().unknown) });
   const row3 = [];
   if (c.reason) row3.push(reasonText(c.reason));
-  if (c.tier_confidence !== undefined && c.tier_confidence !== null) {
-    row3.push("conf " + c.tier_confidence.toFixed(2));
+  if (hasNum(c.tier_confidence)) {
+    row3.push("conf " + numFixed(c.tier_confidence, 2));
   }
   row3.push(ago(c.last_at));
   const row4 = [];
@@ -262,10 +297,11 @@ function liveCard(c) {
   if (c.escalated_left) row4.push("↑" + c.escalated_left);
   if (c.lower_streak) row4.push("↓" + c.lower_streak);
   if (c.pinned) row4.push("📌");
+  const tier = String(c.tier || "?");
   return el("div", { class: "card" }, [
     el("div", { class: "row1" }, [
       el("span", { text: (c.harness || T().unknown) + " · " + (c.agent || "") }),
-      el("span", {}, [c.tier, " ", tierChip(c.tier)]),
+      el("span", {}, [tier, " ", tierChip(tier)]),
     ]),
     row2,
     el("div", { class: "row3 muted", text: row3.join(" · ") }),
@@ -282,7 +318,7 @@ function decisionTable(turns) {
     el("th", { class: "num", text: T().latency }),
   ])));
   const body = el("tbody");
-  for (const ev of turns.slice(0, 20)) {
+  for (const ev of safeArr(turns).slice(0, 20)) {
     const differs = ev.classified_tier && ev.classified_tier !== ev.tier;
     body.appendChild(el("tr", {}, [
       el("td", { class: "muted", text: clock(ev.t) }),
@@ -293,8 +329,7 @@ function decisionTable(turns) {
                  text: differs ? ev.classified_tier : (ev.classified_tier || T().notMeasured) }),
       el("td", { class: "reason", title: reasonText(ev.reason), text: ev.reason || "" }),
       el("td", { class: "muted", text: ev.classifier || ev.source || "" }),
-      el("td", { class: "num", text: ev.tier_confidence !== undefined && ev.tier_confidence !== null ?
-        ev.tier_confidence.toFixed(2) : T().notMeasured }),
+      el("td", { class: "num", text: hasNum(ev.tier_confidence) ? numFixed(ev.tier_confidence, 2) : T().notMeasured }),
       el("td", { class: "num", text: ev.latency_ms ? ev.latency_ms + "ms" : T().notMeasured }),
     ]));
   }
@@ -303,7 +338,8 @@ function decisionTable(turns) {
 }
 
 function distribution(title, counts, total) {
-  const keys = Object.keys(counts || {}).sort((a, b) => counts[b] - counts[a]);
+  const map = safeObj(counts);
+  const keys = Object.keys(map).sort((a, b) => (Number(map[b]) || 0) - (Number(map[a]) || 0));
   const box = el("div", { class: "dist" });
   box.appendChild(el("h3", { text: title }));
   if (!keys.length) {
@@ -311,30 +347,33 @@ function distribution(title, counts, total) {
     return box;
   }
   for (const k of keys) {
+    const c = Number(map[k]) || 0;
     box.appendChild(el("div", { class: "distrow" }, [
       el("span", { class: "distname", text: k }),
-      el("span", { class: "distbar" }, bar(counts[k] / (total || 1))),
-      el("span", { class: "num distnum", text: counts[k] + " · " + pct(counts[k], total) }),
+      el("span", { class: "distbar" }, bar(c / (total || 1))),
+      el("span", { class: "num distnum", text: c + " · " + pct(c, total) }),
     ]));
   }
   return box;
 }
 
 function calibrationTable(c) {
+  c = safeObj(c);
+  const bands = safeArr(c.bands);
   const t = el("table");
   t.appendChild(el("thead", {}, el("tr", {}, [
     el("th", { text: "score" }), el("th", { class: "num", text: "n" }),
     el("th", { class: "num", text: "share" }), el("th", { class: "num", text: "under-tier" }),
   ])));
   const body = el("tbody");
-  const total = (c.bands || []).reduce((a, b) => a + b.n, 0);
-  for (const b of c.bands || []) {
+  const total = bands.reduce((a, b) => a + (Number(b.n) || 0), 0);
+  for (const b of bands) {
+    const n = Number(b.n) || 0;
     body.appendChild(el("tr", {}, [
       el("td", { text: "[" + b.lo + ", " + b.hi + ")" }),
-      el("td", { class: "num", text: String(b.n) }),
-      el("td", { class: "num", text: pct(b.n, total) }),
-      // an empty band is "—", never 0%: no samples is not "never under-tier"
-      el("td", { class: "num", text: b.n ? pct(b.under_rate * 100, 100) : T().notMeasured }),
+      el("td", { class: "num", text: String(n) }),
+      el("td", { class: "num", text: pct(n, total) }),
+      el("td", { class: "num", text: n ? pct((Number(b.under_rate) || 0) * 100, 100) : T().notMeasured }),
     ]));
   }
   t.appendChild(body);
@@ -343,7 +382,6 @@ function calibrationTable(c) {
     c.sample_short ? T().sampleShort : null].filter(Boolean).join(" · ");
   return el("div", { class: "cal" }, [t, el("div", { class: "muted", text: foot })]);
 }
-
 
   function detectOS() {
     const nav = typeof navigator !== "undefined" ? navigator : {};
@@ -472,14 +510,17 @@ function calibrationTable(c) {
   }
 
   function render(data) {
+  try {
+  data = safeObj(data);
   const root = document.getElementById("root");
+  if (!root) return;
   root.textContent = "";
   const t = T();
-  const w = data.window || {};
+  const w = safeObj(data.window);
   const turns = turnsOf(data);
-  const turnsCount = Object.values(w.tiers || {}).reduce((a, b) => a + b, 0);
-  const cov = w.coverage || { asked: 0, total: 0 };
-  const reasons = w.reasons || {};
+  const turnsCount = Object.values(safeObj(w.tiers)).reduce((a, b) => a + (Number(b) || 0), 0);
+  const cov = safeObj(w.coverage);
+  const reasons = safeObj(w.reasons);
   const topReason = Object.keys(reasons).sort((a, b) => reasons[b] - reasons[a])[0] || "";
   const cost = (w.report && w.report.router && w.report.router.total_cost) || 0;
 
@@ -521,7 +562,7 @@ function calibrationTable(c) {
 
   // the sessions that are running now
   root.appendChild(el("h2", { text: t.live }));
-  const live = data.live || [];
+  const live = safeArr(data.live);
   if (live.length) {
     const cards = el("div", { class: "cards" });
     for (const c of live) cards.appendChild(liveCard(c));
@@ -541,7 +582,7 @@ function calibrationTable(c) {
             el("span", { text: (ev.harness || t.unknown) + " · " + (ev.agent || "") }),
             el("span", {}, [ev.tier, " ", tierChip(ev.tier || "?")]),
           ]),
-          el("div", { class: "row2", text: clock(ev.t) + " · " + (ev.session || "").slice(0, 8) }),
+          el("div", { class: "row2", text: clock(ev.t) + " · " + String(ev.session || "").slice(0, 8) }),
           el("div", { class: "row3 muted", text: reasonText(ev.reason) }),
         ]));
       }
@@ -567,7 +608,7 @@ function calibrationTable(c) {
   ]));
   if (cl.failures) {
     const ul = el("ul", { class: "fixes" });
-    for (const [kind, n] of Object.entries(cl.error_kinds || {})) {
+    for (const [kind, n] of Object.entries(safeObj(cl.error_kinds))) {
       ul.appendChild(el("li", { text: kind + " × " + n + " — " + ((t.failureFix || {})[kind] || "") }));
     }
     root.appendChild(ul);
@@ -603,7 +644,7 @@ function calibrationTable(c) {
   dists.appendChild(distribution("tier", w.tiers, turnsCount));
   dists.appendChild(distribution("reason", w.reasons, turnsCount));
   dists.appendChild(distribution("harness", w.harnesses, turnsCount));
-  dists.appendChild(distribution("arm", w.arms, Object.values(w.arms || {}).reduce((a, b) => a + b, 0)));
+  dists.appendChild(distribution("arm", w.arms, Object.values(safeObj(w.arms)).reduce((a, b) => a + (Number(b) || 0), 0)));
   root.appendChild(dists);
 
   // the two arms
@@ -637,7 +678,7 @@ function calibrationTable(c) {
     t.cacheWrite + ": " + money((rep.router || {}).cache_write_cost || 0)];
   if (rep.sample_short) notes.push(t.sampleShort);
   root.appendChild(el("div", { class: "muted", text: notes.join(" · ") }));
-  for (const c of w.calibrate || []) root.appendChild(calibrationTable(c));
+  for (const c of safeArr(w.calibrate)) root.appendChild(calibrationTable(c));
 
   // the configuration, last: it is reference, not the story
   const cfg = data.config || {};
@@ -656,7 +697,7 @@ function calibrationTable(c) {
     ["review", (cfg.review || {}).mode + " · " + (cfg.review || {}).timeout_ms + "ms"],
     ["experiment", ((cfg.experiment || {}).enabled ? "on " : "off ") +
       (cfg.experiment || {}).router_percent + "% → " + (cfg.experiment || {}).control_tier],
-    ["fixed_agents", Object.entries(cfg.fixed_agents || {}).map(([a, tier]) => a + " → " + tier).join(", ")],
+    ["fixed_agents", Object.entries(safeObj(cfg.fixed_agents)).map(([a, tier]) => a + " → " + tier).join(", ")],
     ["tiers", TIERS.map((name) => {
       const tc = (cfg.tiers || {})[name] || {};
       return name + " → " + (tc.group || "?") + " (" + (tc.claude_alias || "?") + ")";
@@ -686,6 +727,9 @@ function calibrationTable(c) {
   const foot = el("div", { class: "foot" });
   foot.appendChild(el("ul", {}, t.foot.map((line) => el("li", { text: line }))));
   root.appendChild(foot);
+  } catch (err) {
+    console.warn("[mbridge] render error caught:", err);
+  }
 }
 
   globalThis.MbridgeView = {
