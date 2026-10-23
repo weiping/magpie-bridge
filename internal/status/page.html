@@ -518,15 +518,15 @@ function render(data) {
     }
   }
 
-  // the decisions
-  root.appendChild(el("h2", { text: t.decisions }));
-  if (!turns.length) {
-    root.appendChild(el("div", { class: "muted", text: t.noDecisions }));
-  } else {
+  // the decisions: a fresh process has none yet — the section is left
+  // out entirely rather than showing an empty table
+  if (turns.length) {
+    root.appendChild(el("h2", { text: t.decisions }));
     root.appendChild(decisionTable(turns));
   }
 
-  // the classifier
+  // the classifier: left out when nothing has run in the window
+  if (turnsCount) {
   root.appendChild(el("h2", { text: t.classifier }));
   const cl = w.classify || { asked: 0, failures: 0, error_kinds: {} };
   root.appendChild(kv([
@@ -566,7 +566,10 @@ function render(data) {
     root.appendChild(gt);
   }
 
-  // the distributions
+  }
+
+  // the distributions: left out when nothing ran in the window
+  if (turnsCount) {
   root.appendChild(el("h2", { text: t.distributions }));
   const dists = el("div", { class: "dists" });
   dists.appendChild(distribution("tier", w.tiers, turnsCount));
@@ -575,7 +578,11 @@ function render(data) {
   dists.appendChild(distribution("arm", w.arms, Object.values(w.arms || {}).reduce((a, b) => a + b, 0)));
   root.appendChild(dists);
 
-  // the two arms
+  }
+
+  // the two arms: left out when nothing ran in the window (an empty
+  // table would look like a bug, and sample_short would always be true)
+  if (turnsCount) {
   root.appendChild(el("h2", { text: t.arms }));
   const rep = w.report || {};
   const rows = [];
@@ -607,6 +614,8 @@ function render(data) {
   if (rep.sample_short) notes.push(t.sampleShort);
   root.appendChild(el("div", { class: "muted", text: notes.join(" · ") }));
   for (const c of w.calibrate || []) root.appendChild(calibrationTable(c));
+
+  }
 
   // the configuration, last: it is reference, not the story
   const cfg = data.config || {};

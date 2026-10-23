@@ -373,7 +373,27 @@ function calibrationTable(c) {
     const card1 = el("div", { class: "guide-card" });
     const osTitles = { darwin: "macOS", linux: "Linux", windows: "Windows" };
     card1.appendChild(el("h2", { text: (isZh ? "步骤一：安装与启动 · " : "Step 1: Install & Start · ") + (osTitles[os] || "macOS") }));
-    card1.appendChild(el("p", { class: "guide-desc", text: isZh ? "鹊桥 是独立于 magpie 的智能模型选档守护进程，服务跑在 127.0.0.1:3426。" : "Magpie Bridge is a per-turn model router daemon running on 127.0.0.1:3426." }));
+    card1.appendChild(el("p", { class: "guide-desc" }));
+    const descBox = card1.querySelector(".guide-desc:last-of-type") || card1.querySelector("p:last-of-type");
+    card1.appendChild(el("div", { class: "guide-desc", text: isZh
+      ? "鹊桥 是独立于 magpie 的智能模型选档守护进程，服务跑在 127.0.0.1:3426。每轮自动按难度选档（fast / balanced / performance），支持分类器置信度、升档降档、A/B 实验和校准。"
+      : "Magpie Bridge is a per-turn model router daemon on 127.0.0.1:3426. It routes each turn by difficulty (fast / balanced / performance), with classifier confidence, escalation, A/B experiments and calibration." }));
+    const features = isZh ? [
+      "逐轮自动选档：按任务难度在 fast / balanced / performance 三档之间切换",
+      "TypeSafe Jev 分类器：用模型给每轮任务打置信度，低置信度自动升档",
+      "升档降档与迟滞：上一轮不满意自动升档，缓存过期自动降档",
+      "校准与 A/B 实验：阈值建议、两臂对比、成本统计",
+      "状态页 http://127.0.0.1:3426/status：进程、会话、判档、分类器、分布、两臂与校准",
+    ] : [
+      "Per-turn routing: fast / balanced / performance by task difficulty",
+      "TypeSafe Jev classifier: model-scored confidence per turn, auto-escalate on low confidence",
+      "Escalation with hysteresis: unsatisfying turns escalate, cache expiry lowers",
+      "Calibration & A/B experiments: threshold suggestions, two-arm comparison, cost stats",
+      "Status page http://127.0.0.1:3426/status: process, sessions, decisions, classifier, distributions, two arms & calibration",
+    ];
+    const ul = el("ul", { class: "fixes" });
+    for (const line of features) ul.appendChild(el("li", { text: line }));
+    card1.appendChild(ul);
 
     const steps1 = el("div", { class: "guide-steps" });
 
