@@ -424,3 +424,23 @@ func TestStatusPageIsServedAndTheRootStillProxies(t *testing.T) {
 		t.Fatalf("root answered %q", b2)
 	}
 }
+
+// TestTheStatusPageIsNotCached: the page is the running mbridge, so a
+// browser that keeps a copy of it shows a dashboard that stopped moving.
+func TestTheStatusPageIsNotCached(t *testing.T) {
+	env := setup(t)
+	res, err := http.Get(env.srv.URL + "/status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d", res.StatusCode)
+	}
+	if cc := res.Header.Get("Cache-Control"); cc != "no-store" {
+		t.Fatalf("cache-control %q, want no-store", cc)
+	}
+	if ct := res.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Fatalf("content-type %q", ct)
+	}
+}

@@ -61,6 +61,9 @@ func Handler(target *url.URL, listen string, deps *router.Deps) http.Handler {
 	// /v1/bridge/router from the same origin, five seconds at a time
 	mux.HandleFunc("GET /status", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		// the page is the running mbridge, not a document: a browser that
+		// keeps a copy of it shows a dashboard that stopped moving
+		w.Header().Set("Cache-Control", "no-store")
 		w.Write(status.Page())
 	})
 	// the restart endpoint, which only a page on this address may call
