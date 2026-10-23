@@ -336,7 +336,114 @@ function calibrationTable(c) {
   return el("div", { class: "cal" }, [t, el("div", { class: "muted", text: foot })]);
 }
 
-function render(data) {
+
+  function detectOS() {
+    const nav = typeof navigator !== "undefined" ? navigator : {};
+    const ua = (nav.userAgent || "").toLowerCase();
+    const plat = (nav.platform || "").toLowerCase();
+    if (plat.includes("win") || ua.includes("windows")) return "windows";
+    if (plat.includes("linux") || ua.includes("linux") || ua.includes("x11")) return "linux";
+    return "darwin"; // default mac
+  }
+
+  function renderGuide(osName, lang) {
+    const isZh = String(lang || "").toLowerCase().startsWith("zh");
+    const os = osName || detectOS();
+    const root = document.getElementById("root");
+    root.textContent = "";
+
+    const box = el("div", { class: "setup-guide" });
+
+    // Header
+    const head = el("header", { class: "head" }, [
+      el("h1", {}, [el("span", { text: isZh ? "鹊桥" : "mbridge" })]),
+      el("p", { class: "sub", text: isZh ? "未检测到运行中的 mbridge 实例。请按以下步骤安装、配置并启动：" : "mbridge instance is not running or not installed. Follow the steps below to setup:" }),
+    ]);
+    box.appendChild(head);
+
+    // Guide card 1: Service Install & Start
+    const card1 = el("div", { class: "guide-card" });
+    const osTitles = { darwin: "macOS", linux: "Linux", windows: "Windows" };
+    card1.appendChild(el("h2", { text: (isZh ? "步骤一：安装与启动 · " : "Step 1: Install & Start · ") + (osTitles[os] || "macOS") }));
+    card1.appendChild(el("p", { class: "guide-desc", text: isZh ? "鹊桥 是独立于 magpie 的智能模型选档守护进程，服务跑在 127.0.0.1:3426。" : "Magpie Bridge is a per-turn model router daemon running on 127.0.0.1:3426." }));
+
+    const steps1 = el("div", { class: "guide-steps" });
+
+    // 1. Install
+    const s1 = el("div", { class: "guide-step" });
+    s1.appendChild(el("div", { class: "step-title", text: isZh ? "1. 安装 mbridge 并注册自启服务" : "1. Install mbridge & register login service" }));
+    const cmd1 = os === "windows"
+      ? "irm https://raw.githubusercontent.com/weiping/mbridge/main/install.ps1 | iex"
+      : "curl -fsSL https://raw.githubusercontent.com/weiping/mbridge/main/install.sh | sh";
+    s1.appendChild(el("div", { class: "step-cmd" }, [el("pre", { text: cmd1 })]));
+    steps1.appendChild(s1);
+
+    // 2. Init groups
+    const s2 = el("div", { class: "guide-step" });
+    s2.appendChild(el("div", { class: "step-title", text: isZh ? "2. 在 magpie 中初始化路由分组与配置" : "2. Initialize routing groups & config in magpie" }));
+    const cmd2 = "mbridge router init --preset cn --groups-only";
+    s2.appendChild(el("div", { class: "step-cmd" }, [el("pre", { text: cmd2 })]));
+    s2.appendChild(el("div", { class: "guide-tip", text: isZh ? "（也可选择 --preset frontier 或 anthropic 预设）" : "(or choose --preset frontier / anthropic)" }));
+    steps1.appendChild(s2);
+
+    // 3. Start / Verify
+    const s3 = el("div", { class: "guide-step" });
+    s3.appendChild(el("div", { class: "step-title", text: isZh ? "3. 启动与验证" : "3. Start & Verify" }));
+    const cmd3 = "# 检查服务运行状态\nmbridge status\n\n# 或手动在前台启动\nmbridge serve";
+    s3.appendChild(el("div", { class: "step-cmd" }, [el("pre", { text: cmd3 })]));
+    steps1.appendChild(s3);
+
+    card1.appendChild(steps1);
+    box.appendChild(card1);
+
+    // Guide card 2: Agent Plugins (Claude Code, Codex, Pi)
+    const card2 = el("div", { class: "guide-card" });
+    card2.appendChild(el("h2", { text: isZh ? "步骤二：安装 Agent 插件与使用" : "Step 2: Install Agent Plugins & Usage" }));
+    card2.appendChild(el("p", { class: "guide-desc", text: isZh ? "主流编码 Agent 均有一键插件支持，按需安装对应客户端：" : "Supported coding agents have dedicated plugins. Install as needed:" }));
+
+    const steps2 = el("div", { class: "guide-steps" });
+
+    // Claude Code
+    const pClaude = el("div", { class: "guide-step" });
+    pClaude.appendChild(el("div", { class: "step-title", text: "Claude Code（≥ v2.1.287）" }));
+    const cmdClaude = `# 1. 安装插件\nclaude plugin marketplace add weiping/mbridge\nclaude plugin install mbridge@mbridge\n\n# 2. 项目配置：在项目的 .claude/settings.json 中指定模型\n{\n  "model": "group/mbridge[1m]"\n}`;
+    pClaude.appendChild(el("div", { class: "step-cmd" }, [el("pre", { text: cmdClaude })]));
+    steps2.appendChild(pClaude);
+
+    // Codex
+    const pCodex = el("div", { class: "guide-step" });
+    pCodex.appendChild(el("div", { class: "step-title", text: "Codex" }));
+    const cmdCodex = `# 1. 安装插件（使用 --sparse 避免拉取庞大历史）\ncodex plugin marketplace add weiping/mbridge --sparse .agents --sparse clients/codex\ncodex plugin add mbridge@mbridge\n\n# 2. 启动使用：通过 mbridge 配置文件启动\ncodex -p mbridge\n# 或在项目的 .codex/config.toml 中指定\nmodel = "group/mbridge"`;
+    pCodex.appendChild(el("div", { class: "step-cmd" }, [el("pre", { text: cmdCodex })]));
+    steps2.appendChild(pCodex);
+
+    // Pi
+    const pPi = el("div", { class: "guide-step" });
+    pPi.appendChild(el("div", { class: "step-title", text: "Pi" }));
+    const cmdPi = `# 1. 安装扩展\npi install npm:@weiping/pi-mbridge\n\n# 2. 项目配置：在项目的 .pi/settings.json 中指定\n{\n  "defaultProvider": "magpie",\n  "defaultModel": "group/mbridge"\n}`;
+    pPi.appendChild(el("div", { class: "step-cmd" }, [el("pre", { text: cmdPi })]));
+    steps2.appendChild(pPi);
+
+    card2.appendChild(steps2);
+    box.appendChild(card2);
+
+    // Actions & Live polling indicator
+    const actions = el("div", { style: "margin: 1rem 0; display: flex; align-items: center; gap: 1rem;" });
+    const refBtn = el("button", { type: "button", class: "guide-refresh", text: isZh ? "🔄 检查服务状态" : "🔄 Check Status" });
+    refBtn.onclick = () => {
+      refBtn.textContent = isZh ? "正在刷新…" : "Refreshing…";
+      if (globalThis.pollMbridge) globalThis.pollMbridge();
+    };
+    actions.appendChild(refBtn);
+
+    const tipLink = el("span", { class: "guide-tip", text: isZh ? "mbridge 服务启动后，本页面将自动实时切换为数据监控大盘。" : "Once mbridge starts, this page will automatically display the dashboard." });
+    actions.appendChild(tipLink);
+
+    box.appendChild(actions);
+    root.appendChild(box);
+  }
+
+  function render(data) {
   const root = document.getElementById("root");
   root.textContent = "";
   const t = T();
@@ -580,5 +687,7 @@ function render(data) {
     distribution,
     calibrationTable,
     render,
+    renderGuide,
+    detectOS,
   };
 })();

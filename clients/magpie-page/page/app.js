@@ -6,10 +6,13 @@
 (async () => {
   const V = globalThis.MbridgeView;
   const theme = await magpie.ready;
+  let lang = "en";
   if (theme && theme.lang) {
     if (theme.lang.toLowerCase().startsWith("zh")) {
-      // view.js defines lang globally inside its IIFE, but we can also set navigator/locale
+      lang = "zh";
     }
+  } else if (typeof navigator !== "undefined" && (navigator.language || "").toLowerCase().startsWith("zh")) {
+    lang = "zh";
   }
 
   let opts = {};
@@ -61,10 +64,14 @@
   }
 
   function renderView(data) {
-    if (!data) {
-      fail("鹊桥 正在等待 mbridge 发布快照数据…");
+    // When mbridge is not running or not installed (empty options or no valid snapshot with a running pid):
+    // Display the setup and installation guide instead of empty dashboard!
+    const isLive = data && data.pid && (data.service ? data.service.running !== false : true);
+    if (!isLive) {
+      V.renderGuide(null, lang);
       return;
     }
+
     V.render(data);
 
     // Wire up tab switching in the rendered view
@@ -74,7 +81,6 @@
       if (kind === "1d" || kind === "7d" || kind === "30d") {
         btn.onclick = async () => {
           await setWindow(kind);
-          // optimistically update tab highlight
           tabButtons.forEach((b) => b.setAttribute("aria-pressed", String(b.textContent.trim() === kind)));
         };
       }
@@ -99,12 +105,10 @@
 
   async function poll() {
     const snap = await readOptions();
-    if (snap) {
-      renderView(snap);
-    } else {
-      fail("鹊桥 正在等待 mbridge 发布快照数据…");
-    }
+    renderView(snap);
   }
+
+  globalThis.pollMbridge = poll;
 
   await poll();
   setInterval(poll, 5000);
