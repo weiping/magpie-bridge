@@ -10,7 +10,7 @@ const REFRESH_MS = 5000;
 // built the first time, so a stale tab shows an old version here (SP14 §2:
 // the plugin page is a one-way ticket — toggle the plugin off and on to
 // get a new frame).
-const PAGE_VERSION = "0.5.1";
+const PAGE_VERSION = "0.5.2";
 
 const TEXT = {
   en: {
@@ -20,6 +20,7 @@ const TEXT = {
     unknown: "unknown",
     listenPending: "the listen in router.json takes effect only after a restart",
     turns: "turns",
+    tools: "tools",
     coverage: "asked the classifier",
     failures: "failures",
     cost: "cost",
@@ -73,6 +74,7 @@ const TEXT = {
     unknown: "未知",
     listenPending: "router.json 里的 listen 要重启才生效",
     turns: "轮",
+    tools: "工具",
     coverage: "问了分类器",
     failures: "失败",
     cost: "成本",
