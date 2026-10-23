@@ -1,6 +1,6 @@
 {
   "name": "@weiping/mbridge-page",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "mbridge's usage at a glance inside magpie: what magpie's ledger recorded, and where mbridge's own status page is.",
   "license": "MIT",
   "keywords": [
@@ -23,12 +23,12 @@
   ],
   "magpie": {
     "page": {
-      "title": "mbridge",
+      "title": "鹊桥",
       "titles": {
-        "zh": "mbridge",
-        "zh-TW": "mbridge",
-        "ja": "mbridge",
-        "de": "mbridge"
+        "zh": "鹊桥",
+        "zh-TW": "鵲橋",
+        "ja": "鵲橋",
+        "de": "Magpie Bridge"
       },
       "file": "page/index.html",
       "icon": "page/icon.svg"

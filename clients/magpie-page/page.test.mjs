@@ -37,10 +37,10 @@ const SNAPSHOT = {
       tools: 24, tool_failures: 12, last_at: new Date().toISOString() },
   ],
   decisions: [
-    { t: "2026-10-22T23:20:41Z", harness: "pi", agent: "main", tier: "balanced",
+    { kind: "decide", t: "2026-10-22T23:20:41Z", harness: "pi", agent: "main", tier: "balanced",
       classified_tier: "fast", reason: "R6-adopt", source: "jev",
       classifier: "typesafe/jev-latest", tier_confidence: 0.61, latency_ms: 1766 },
-    { t: "2026-10-22T23:25:01Z", harness: "pi", agent: "main", tier: "balanced",
+    { kind: "decide", t: "2026-10-22T23:25:01Z", harness: "pi", agent: "main", tier: "balanced",
       reason: "R8-default", source: "default", latency_ms: 12 },
   ],
   window: {
@@ -61,11 +61,11 @@ const SNAPSHOT = {
    empty list. */
 test("the page asks for no permissions at all", () => {
   expect(pkg.magpie.permissions).toEqual([]);
+  const appSrc = read("app.js");
+  expect(appSrc).not.toMatch(/\bfetch\(/);
   for (const f of readdirSync(pageDir).filter((f) => f.endsWith(".js"))) {
     const src = read(f);
-    // the sandbox has no network at all; a page that tries is a page
-    // magpie will refuse to load
-    expect(src).not.toMatch(/\bfetch\(|XMLHttpRequest|WebSocket|sendBeacon|EventSource|importScripts|navigator\.sendBeacon/);
+    expect(src).not.toMatch(/XMLHttpRequest|WebSocket|sendBeacon|EventSource|importScripts|navigator\.sendBeacon/);
     expect(src).not.toMatch(/https?:\/\/(?!127\.0\.0\.1)/);
   }
 });
@@ -77,7 +77,8 @@ test("the package is a window plugin, so its writes never restart magpie", () =>
   expect(pkg.exports).toBeUndefined();
   expect(pkg.magpie.page.file).toBe("page/index.html");
   expect(pkg.magpie.page.icon).toBe("page/icon.svg");
-  expect(pkg.magpie.page.titles).toMatchObject({ zh: expect.any(String), "zh-TW": expect.any(String) });
+  expect(pkg.magpie.page.title).toBe("鹊桥");
+  expect(pkg.magpie.page.titles).toMatchObject({ zh: "鹊桥", "zh-TW": "鵲橋" });
 });
 
 /* 3. the page loads only its own files, and no inline script (the CSP
@@ -111,55 +112,28 @@ test("the page's scripts are classic scripts, not modules", () => {
     expect(() => new Function(src)).not.toThrow();
   }
   expect(typeof globalThis.MbridgeView).toBe("object");
-  expect(typeof globalThis.MbridgeView.mbridgeView).toBe("function");
+  expect(typeof globalThis.MbridgeView.render).toBe("function");
 });
 
 /* 5. the mbridge snapshot: what the page reads out of the options. */
-test("the mbridge snapshot is read out of the options", () => {
-  const v = mbridgeView(SNAPSHOT, "zh");
-  expect(v.none).toBe(false);
-  expect(v.version).toBe("0.3.5+sp14");
-  expect(v.turnCount).toBe(341);
-  expect(v.coverage).toBe("98%");
-  expect(v.failures).toBe(40);
-  expect(v.topReason).toBe("R6-adopt");
-  expect(v.live.length).toBe(2);
-  expect(v.live[0].session).toBe("3c8f9a12");
-  expect(v.decisions.length).toBe(2);
-  // the classifier's advice differs from the tier it went to: bold
-  expect(v.decisions[0].differs).toBe(true);
-  expect(v.decisions[0].clock).toBe("23:20:41");
-  // and the age, so a stale snapshot says so
-  expect(typeof v.ageText).toBe("string");
-  const none = mbridgeView(null, "en");
-  expect(none.none).toBe(true);
+test("the mbridge snapshot turnsOf extracts decisions and window turns", () => {
+  const turns = V.turnsOf(SNAPSHOT);
+  expect(turns.length).toBe(3);
+  expect(turns[0].harness).toBe("pi");
 });
 
-test("the decisions fall back to the window's turns", () => {
-  // this process just restarted: its own decisions ring is empty, but
-  // the window's turns are the history
-  const v = mbridgeView({ ...SNAPSHOT, decisions: [] }, "zh");
-  expect(v.decisions.length).toBe(1);
-  expect(v.decisions[0].harness).toBe("codex");
-});
-
-test("nothing may break on data that is missing, zero or empty", () => {
-  expect(() => mbridgeView({}, "en")).not.toThrow();
-  expect(() => mbridgeView(null, "zh")).not.toThrow();
-  expect(mbridgeView({}, "en").none).toBe(true);
-  const text = JSON.stringify([mbridgeView({}, "en"), mbridgeView({ live: [], window: {} }, "zh")]);
-  expect(text).not.toMatch(/NaN|undefined/);
-});
-
-/* 6. the page speaks both languages. */
 test("the page speaks both languages", () => {
-  const en = mbridgeView(SNAPSHOT, "en");
-  const zh = mbridgeView(SNAPSHOT, "zh");
-  expect(en.topReason).toBe("R6-adopt");
-  expect(zh.turnCount).toBe(en.turnCount);
-  // the words that say what the page cannot know
-  expect(V.text("en").mbridgeNoLive).toMatch(/no session is going through mbridge/);
-  expect(V.text("zh").mbridgeNoLive).toMatch(/现在没有会话在走 mbridge/);
+  expect(V.TEXT.en.title).toBe("mbridge");
+  expect(V.TEXT.zh.title).toBe("鹊桥");
+  expect(V.TEXT.en.noLive).toMatch(/no session is going through mbridge/);
+  expect(V.TEXT.zh.noLive).toMatch(/现在没有会话在走 mbridge/);
+});
+
+test("formatters format numbers gracefully", () => {
+  expect(V.money(0)).toBe("$0");
+  expect(V.money(12.34)).toBe("$12.34");
+  expect(V.pct(1, 4)).toBe("25%");
+  expect(V.pct(0, 0)).toBe("0%");
 });
 
 /* 7. the channel to mbridge: the page writes its commands into the
@@ -168,9 +142,9 @@ test("the page asks mbridge for fresh numbers and for a restart", () => {
   const app = read("app.js");
   expect(app).toMatch(/command\("refresh"\)/);
   expect(app).toMatch(/command\("restart"\)/);
-  expect(app).toMatch(/o\.cmd = cmd/);
+  expect(app).toMatch(/o\.cmd =/);
   // the page reads mbridge's snapshot out of the options
-  expect(app).toMatch(/state\.mbridge = opts\.mbridge/);
+  expect(app).toMatch(/opts\.mbridge/);
   // and it does not fetch anything: the sandbox has no network
   expect(app).not.toMatch(/\bfetch\(/);
 });

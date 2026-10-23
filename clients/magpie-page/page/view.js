@@ -1,197 +1,584 @@
-// view.js is what the page shows, worked out from usage:summary without
-// the DOM, so a test can check it.
-//
-// It is a classic script, not a module: a magpie page runs in a sandbox
-// whose CSP serves the plugin's own files, and the community's usage
-// page does it this way too (globalThis.UsageView). A module script
-// would be a different thing to load, and the test below loads this file
-// the same way the page does.
+// view.js provides the complete status UI renderer for the magpie plugin page.
+// It shares the exact visual design and data representation with the mbridge /status page.
 
 (() => {
-  const TEXT = {
-    en: {
-      title: "mbridge",
-      subtitle: "what magpie's ledger recorded",
-      today: "today",
-      "7d": "7 days",
-      "30d": "30 days",
-      status: "mbridge's own status:",
-      restart: "restart it with",
-      mbridge: "mbridge",
-      mbridgeNone: "mbridge has not published anything yet",
-      mbridgeAge: "published",
-      mbridgeLive: "sessions running now",
-      mbridgeNoLive: "no session is going through mbridge right now",
-      mbridgeDecisions: "recent decisions",
-      mbridgeWindow: "the last",
-      mbridgeTurns: "turns",
-      mbridgeCoverage: "asked the classifier",
-      mbridgeFailures: "failures",
-      mbridgeAsk: "ask for fresh numbers",
-      mbridgeAsking: "asking…",
-      mbridgeRestart: "restart mbridge",
-      mbridgeRestarting: "restarting…",
-      mbridgeRestartAsked: "restart asked for",
-      mbridgeRestartRefused: "refused",
-      tier: "tier",
-      advised: "advised",
-      reason: "reason",
-      conf: "confidence",
-      unknown: "unknown",
-      running: "running",
-      notRunning: "installed, not running",
-      notInstalled: "not installed",
-      tools: "tools",
-      noDecisions: "no decision yet",
-    },
-    zh: {
-      title: "mbridge",
-      subtitle: "magpie 记下的全部用量",
-      today: "今天",
-      "7d": "7 天",
-      "30d": "30 天",
-      status: "mbridge 自己的状态：",
-      restart: "重启用",
-      mbridge: "mbridge",
-      mbridgeNone: "mbridge 还没有发布过任何东西",
-      mbridgeAge: "发布于",
-      mbridgeLive: "正在选档的会话",
-      mbridgeNoLive: "现在没有会话在走 mbridge",
-      mbridgeDecisions: "最近判档",
-      mbridgeWindow: "最近",
-      mbridgeTurns: "轮",
-      mbridgeCoverage: "问了分类器",
-      mbridgeFailures: "失败",
-      mbridgeAsk: "要最新数字",
-      mbridgeAsking: "正在要…",
-      mbridgeRestart: "重启 mbridge",
-      mbridgeRestarting: "正在重启…",
-      mbridgeRestartAsked: "已发出重启指令",
-      mbridgeRestartRefused: "被拒绝",
-      tier: "档",
-      advised: "建议",
-      reason: "reason",
-      conf: "置信度",
-      unknown: "未知",
-      running: "在跑",
-      notRunning: "装了，没在跑",
-      notInstalled: "没装",
-      tools: "工具",
-      noDecisions: "还没有判档",
-    },
+"use strict";
+
+const REFRESH_MS = 5000;
+
+const TEXT = {
+  en: {
+    title: "mbridge",
+    subtitle: "per-turn model routing, on this machine",
+    window: "window",
+    unknown: "unknown",
+    listenPending: "the listen in router.json takes effect only after a restart",
+    turns: "turns",
+    coverage: "asked the classifier",
+    failures: "failures",
+    cost: "cost",
+    topReason: "most common reason",
+    process: "process",
+    pid: "pid", uptime: "uptime", listen: "listen", magpie: "magpie",
+    service: "service", running: "running", notRunning: "installed, not running",
+    notInstalled: "not installed",
+    live: "sessions running now",
+    noLive: "no session is going through mbridge right now",
+    justWent: "the last turns that went through it",
+    decisions: "recent decisions",
+    noDecisions: "no decision yet",
+    classifier: "classifier",
+    distributions: "distributions",
+    arms: "two arms, and the calibration",
+    config: "configuration in force",
+    configNote: "a project-level .mbridge/router.json may override each tier's criteria",
+    since: "since",
+    tier: "tier", advised: "advised", reason: "reason", harness: "harness",
+    agent: "agent", source: "source", conf: "confidence", ms: "ms",
+    tierConf: "tier confidence", dissatisfied: "dissatisfied", compact: "compact",
+    classifyMs: "classifier", latency: "decision (includes classification)",
+    notAsked: "not asked", notMeasured: "—", failed: "failed",
+    askHint: "not every turn asks it: pinned agents, plan mode and compaction never do, so a coverage below 100% is normal.",
+    failureFix: { timeout: "raise classify_timeout_ms",
+                  canceled: "the client gave up first: lower the timeout or use a faster classifier",
+                  magpie: "magpie's own words; no fix is suggested" },
+    sampleShort: "too few samples",
+    feedbackOnly: "from feedback only, not gh",
+    unpriced: "requests magpie has no price for",
+    cacheWrite: "cache write (estimated)",
+    merged: "merged PR", manual: "manual switch", sessions: "sessions",
+    median: "median", p90: "p90",
+    restart: "restart mbridge",
+    restarting: "restarting…",
+    restartAsked: "restart asked for — the pid changes when it comes back",
+    restartRefused: "refused (not same-origin?)",
+    foot: [
+      "the harness is whatever the client says it is; mbridge does not check it, and an unknown one is shown as it came",
+      "the session list is what mbridge still remembers: it is memory, and a restart empties it",
+      "a project-level .mbridge/router.json may override each tier's criteria; which one a session used is not recorded",
+      "the merged-PR rate here comes from the sessions' own feedback, not from gh: mbridge router report runs gh",
+      "the tier on a card is where that turn went, not where it should have gone; the classifier's advice is shown next to it",
+    ],
+  },
+  zh: {
+    title: "鹊桥",
+    subtitle: "本机的逐轮选档",
+    window: "区间",
+    unknown: "未知",
+    listenPending: "router.json 里的 listen 要重启才生效",
+    turns: "轮",
+    coverage: "问了分类器",
+    failures: "失败",
+    cost: "成本",
+    topReason: "最常见的 reason",
+    process: "进程",
+    pid: "pid", uptime: "运行时长", listen: "listen", magpie: "magpie",
+    service: "service", running: "在跑", notRunning: "装了，没在跑",
+    notInstalled: "没装",
+    live: "正在选档的会话",
+    noLive: "现在没有会话在走 mbridge",
+    justWent: "刚刚走过的几轮",
+    decisions: "最近判档",
+    noDecisions: "还没有判档",
+    classifier: "分类器",
+    distributions: "分布",
+    arms: "两臂与校准",
+    config: "生效中的配置",
+    configNote: "项目级 .mbridge/router.json 可以覆盖每档的 criteria",
+    since: "起",
+    tier: "档", advised: "建议", reason: "reason", harness: "harness",
+    agent: "agent", source: "来源", conf: "置信度", ms: "ms",
+    tierConf: "档位置信度", dissatisfied: "不满意", compact: "压缩",
+    classifyMs: "分类耗时", latency: "判档（含分类）",
+    notAsked: "没问", notMeasured: "—", failed: "失败",
+    askHint: "不是每一轮都问：被钉死的 agent、计划模式和压缩轮次都不问，所以覆盖率低于 100% 是正常的。",
+    failureFix: { timeout: "调大 classify_timeout_ms",
+                  canceled: "客户端先放弃了：调小超时，或换更快的分类器",
+                  magpie: "这是 magpie 自己报的原文，不给建议" },
+    sampleShort: "样本不足",
+    feedbackOnly: "只来自会话自报的 feedback，不含 gh",
+    unpriced: "magpie 没有价的请求",
+    cacheWrite: "cache write（估算）",
+    merged: "PR 合并", manual: "手动切模型", sessions: "会话数",
+    median: "中位数", p90: "p90",
+    restart: "重启 mbridge",
+    restarting: "正在重启…",
+    restartAsked: "已发出重启指令 —— pid 变了就是回来了",
+    restartRefused: "被拒绝（不是同源？）",
+    foot: [
+      "harness 是客户端自报的，mbridge 不校验；没见过的值照原样显示",
+      "会话列表只到 mbridge 记得住的为止：它在内存里，重启即空",
+      "项目级 .mbridge/router.json 可以覆盖每档的 criteria；某个会话当时用的是哪一份，没有记录",
+      "这里的 PR 合并率来自会话自报的 feedback，不是 gh：mbridge router report 才跑 gh",
+      "卡片上的档是「这一轮送去了哪」，不是「该用哪」；分类器的建议就显示在旁边",
+    ],
+  },
+};
+
+const REASONS = {
+  "R1-fixed": ["that agent is pinned by fixed_agents", "该 agent 被 fixed_agents 钉死"],
+  "R2-plan-mode": ["plan mode: performance directly", "计划模式，直接 performance"],
+  "R9-compact": ["a compaction or summary turn", "压缩 / 摘要轮次"],
+  "R3-escalate": ["the last turn was judged unsatisfying: one tier up", "上一轮被判不满意 → 升一档"],
+  "R3-tools": ["3+ tool calls, half of them failing: one tier up", "上一轮至少 3 次工具调用、一半以上失败 → 升一档"],
+  "R3-review": ["the review said it was not resolved: one tier up", "复核说上一轮没解决 → 升一档"],
+  "R4-escalation-hold": ["holding the escalated tier", "升档后保持"],
+  "R6-adopt": ["took the classifier's answer", "采用分类结果"],
+  "R6-lower": ["lower tier (cache expired, or lowered twice)", "降档（缓存过期，或连降两次）"],
+  "R6-keep": ["not lowered", "不降档"],
+  "R7-carry": ["classification failed or was unsure: kept the last tier", "分类失败或置信度不够，沿用上一档"],
+  "R8-default": ["no last turn: the default tier", "没有上一轮，用 default_tier"],
+  "hint": ["a tier a /turn stored", "用了 /turn 存下的判档"],
+  "R-held": ["kept the tier the turn began with", "本轮内沿用开轮时那一档"],
+  "codex-title": ["Codex naming the thread, not a turn", "Codex 给线程起标题，不是真的一轮"],
+};
+
+const TIERS = ["fast", "balanced", "performance"];
+
+let lang = (navigator.language || "en").toLowerCase().startsWith("zh") ? "zh" : "en";
+const T = () => TEXT[lang];
+
+function el(tag, attrs, kids) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v === undefined || v === null || v === false) continue;
+    if (k === "text") n.textContent = v;
+    else if (k === "class") n.className = v;
+    else n.setAttribute(k, v);
+  }
+  for (const kid of [].concat(kids || [])) {
+    if (kid === undefined || kid === null || kid === false) continue;
+    n.appendChild(typeof kid === "object" ? kid : document.createTextNode(String(kid)));
+  }
+  return n;
+}
+
+function kv(rows) {
+  const box = el("div", { class: "kv" });
+  for (const [k, v] of rows) {
+    if (v === undefined || v === null) continue;
+    box.appendChild(el("div", { text: k }));
+    box.appendChild(typeof v === "object" ? el("div", {}, v) : el("div", { text: String(v) }));
+  }
+  return box;
+}
+
+function pct(part, whole) {
+  if (!whole) return "0%";
+  const v = (100 * part) / whole;
+  return (Math.round(v * 10) / 10).toString() + "%";
+}
+
+function money(v) {
+  v = Number(v) || 0;
+  if (v === 0) return "$0";
+  if (v > 0 && v < 0.01) return "<$0.01";
+  if (v < 10) return "$" + v.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
+  if (v < 1000) return "$" + v.toFixed(2);
+  return "$" + v.toFixed(0);
+}
+
+function ago(iso) {
+  if (!iso) return "";
+  const t = new Date(iso);
+  if (isNaN(t)) return "";
+  const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+  if (s < 60) return s + "s";
+  if (s < 3600) return Math.round(s / 60) + "m";
+  if (s < 86400) return Math.round(s / 3600) + "h";
+  return Math.round(s / 86400) + "d";
+}
+
+function clock(iso) {
+  if (!iso) return "";
+  const t = new Date(iso);
+  if (isNaN(t)) return "";
+  return t.toLocaleTimeString(lang === "zh" ? "zh-CN" : "en-GB", { hour12: false });
+}
+
+function reasonText(r) {
+  const both = REASONS[r];
+  if (!both) return r || "";
+  return lang === "zh" ? both[1] : both[0];
+}
+
+function tierChip(tier) {
+  return el("span", { class: "chip tier-" + tier, text: tier });
+}
+
+/* The turns to show: the window's last ones, plus the ones this process
+   decided since it started, newest first. Without the window's turns a
+   fresh process would show an empty page. */
+function turnsOf(data) {
+  const out = [];
+  const seen = new Set();
+  const push = (ev) => {
+    if (!ev || (ev.kind !== "decide" && ev.kind !== "shadow")) return;
+    const id = ev.turn_id || (ev.t + "|" + ev.session + "|" + ev.reason);
+    if (seen.has(id)) return;
+    seen.add(id);
+    out.push(ev);
   };
+  for (const ev of (data.window && data.window.turns) || []) push(ev);
+  for (const ev of data.decisions || []) push(ev);
+  out.sort((a, b) => String(b.t || "").localeCompare(String(a.t || "")));
+  return out;
+}
 
-  const STATUS_URL = "http://127.0.0.1:3426/status";
+function scoreCell(value, asked) {
+  if (!asked) return el("div", { class: "off", text: T().notAsked });
+  if (value === undefined || value === null) return el("div", { text: T().notMeasured });
+  return el("div", {}, [bar(value), el("div", { class: "muted", text: value.toFixed(2) })]);
+}
 
-  // text is the words for a language: zh for anything that starts with zh.
-  function text(lang) {
-    return String(lang || "").toLowerCase().startsWith("zh") ? TEXT.zh : TEXT.en;
+function bar(v) {
+  const b = el("div", { class: "bar" });
+  b.appendChild(el("i", { style: "width:" + Math.max(0, Math.min(1, v)) * 100 + "%" }));
+  return b;
+}
+
+function liveCard(c) {
+  const bits = [];
+  if (c.harness) bits.push(c.harness);
+  if (c.agent) bits.push(c.agent);
+  const row2 = el("div", { class: "row2", text: (c.session || "").slice(0, 8) + " · " + (bits.join(" · ") || T().unknown) });
+  const row3 = [];
+  if (c.reason) row3.push(reasonText(c.reason));
+  if (c.tier_confidence !== undefined && c.tier_confidence !== null) {
+    row3.push("conf " + c.tier_confidence.toFixed(2));
+  }
+  row3.push(ago(c.last_at));
+  const row4 = [];
+  if (c.turns) row4.push(c.turns + " " + T().turns);
+  row4.push(T().tools + " " + (c.agent === "gateway" ? (c.tools || 0) + "/" + (c.tool_failures || 0) : "—"));
+  if (c.escalated_left) row4.push("↑" + c.escalated_left);
+  if (c.lower_streak) row4.push("↓" + c.lower_streak);
+  if (c.pinned) row4.push("📌");
+  return el("div", { class: "card" }, [
+    el("div", { class: "row1" }, [
+      el("span", { text: (c.harness || T().unknown) + " · " + (c.agent || "") }),
+      el("span", {}, [c.tier, " ", tierChip(c.tier)]),
+    ]),
+    row2,
+    el("div", { class: "row3 muted", text: row3.join(" · ") }),
+    el("div", { class: "row3 muted", text: row4.join(" · ") }),
+  ]);
+}
+
+function decisionTable(turns) {
+  const t = el("table", { class: "wide" });
+  t.appendChild(el("thead", {}, el("tr", {}, [
+    el("th", { text: "" }), el("th", { text: T().harness }), el("th", { text: T().agent }),
+    el("th", { text: T().tier }), el("th", { text: T().advised }), el("th", { text: T().reason }),
+    el("th", { text: T().source }), el("th", { class: "num", text: T().conf }),
+    el("th", { class: "num", text: T().latency }),
+  ])));
+  const body = el("tbody");
+  for (const ev of turns.slice(0, 20)) {
+    const differs = ev.classified_tier && ev.classified_tier !== ev.tier;
+    body.appendChild(el("tr", {}, [
+      el("td", { class: "muted", text: clock(ev.t) }),
+      el("td", { text: ev.harness || T().unknown }),
+      el("td", { text: ev.agent || "" }),
+      el("td", {}, tierChip(ev.tier || "?")),
+      el("td", { class: differs ? "chip differs" : "muted",
+                 text: differs ? ev.classified_tier : (ev.classified_tier || T().notMeasured) }),
+      el("td", { class: "reason", title: reasonText(ev.reason), text: ev.reason || "" }),
+      el("td", { class: "muted", text: ev.classifier || ev.source || "" }),
+      el("td", { class: "num", text: ev.tier_confidence !== undefined && ev.tier_confidence !== null ?
+        ev.tier_confidence.toFixed(2) : T().notMeasured }),
+      el("td", { class: "num", text: ev.latency_ms ? ev.latency_ms + "ms" : T().notMeasured }),
+    ]));
+  }
+  t.appendChild(body);
+  return t;
+}
+
+function distribution(title, counts, total) {
+  const keys = Object.keys(counts || {}).sort((a, b) => counts[b] - counts[a]);
+  const box = el("div", { class: "dist" });
+  box.appendChild(el("h3", { text: title }));
+  if (!keys.length) {
+    box.appendChild(el("div", { class: "muted", text: "—" }));
+    return box;
+  }
+  for (const k of keys) {
+    box.appendChild(el("div", { class: "distrow" }, [
+      el("span", { class: "distname", text: k }),
+      el("span", { class: "distbar" }, bar(counts[k] / (total || 1))),
+      el("span", { class: "num distnum", text: counts[k] + " · " + pct(counts[k], total) }),
+    ]));
+  }
+  return box;
+}
+
+function calibrationTable(c) {
+  const t = el("table");
+  t.appendChild(el("thead", {}, el("tr", {}, [
+    el("th", { text: "score" }), el("th", { class: "num", text: "n" }),
+    el("th", { class: "num", text: "share" }), el("th", { class: "num", text: "under-tier" }),
+  ])));
+  const body = el("tbody");
+  const total = (c.bands || []).reduce((a, b) => a + b.n, 0);
+  for (const b of c.bands || []) {
+    body.appendChild(el("tr", {}, [
+      el("td", { text: "[" + b.lo + ", " + b.hi + ")" }),
+      el("td", { class: "num", text: String(b.n) }),
+      el("td", { class: "num", text: pct(b.n, total) }),
+      // an empty band is "—", never 0%: no samples is not "never under-tier"
+      el("td", { class: "num", text: b.n ? pct(b.under_rate * 100, 100) : T().notMeasured }),
+    ]));
+  }
+  t.appendChild(body);
+  const foot = [c.current !== undefined ? "current " + c.current : null,
+    c.suggested !== undefined && c.suggested !== null ? "suggested " + c.suggested : null,
+    c.sample_short ? T().sampleShort : null].filter(Boolean).join(" · ");
+  return el("div", { class: "cal" }, [t, el("div", { class: "muted", text: foot })]);
+}
+
+function render(data) {
+  const root = document.getElementById("root");
+  root.textContent = "";
+  const t = T();
+  const w = data.window || {};
+  const turns = turnsOf(data);
+  const turnsCount = Object.values(w.tiers || {}).reduce((a, b) => a + b, 0);
+  const cov = w.coverage || { asked: 0, total: 0 };
+  const reasons = w.reasons || {};
+  const topReason = Object.keys(reasons).sort((a, b) => reasons[b] - reasons[a])[0] || "";
+  const cost = (w.report && w.report.router && w.report.router.total_cost) || 0;
+
+  // the headline: mbridge's own numbers, not the process table
+  root.appendChild(el("header", { class: "head" }, [
+    el("h1", {}, [el("span", { text: "mbridge" }),
+      el("span", { class: "version", text: " " + (data.version || "") })]),
+    el("p", { class: "sub", text: t.subtitle }),
+  ]));
+
+  const tabs = el("div", { class: "tabs" });
+  for (const kind of ["1d", "7d", "30d"]) {
+    tabs.appendChild(el("button", { type: "button", "aria-pressed": String(w.kind === kind),
+      text: kind, onclick: () => { current.window = kind; load(); } }));
+  }
+  tabs.appendChild(el("span", { class: "muted", text: t.window }));
+
+  root.appendChild(el("div", { class: "pulse" }, [
+    el("div", { class: "stat" }, [el("b", { text: String(turnsCount) }), el("span", { text: " " + t.turns })]),
+    el("div", { class: "stat" }, [el("b", { text: pct(cov.asked, cov.total) }),
+      el("span", { text: " " + t.coverage })]),
+    el("div", { class: "stat" }, [el("b", { text: String((w.classify || {}).failures || 0) }),
+      el("span", { text: " " + t.failures })]),
+    el("div", { class: "stat" }, [el("b", { text: money(cost) }), el("span", { text: " " + t.cost })]),
+    topReason ? el("div", { class: "stat" }, [el("b", { text: topReason }),
+      el("span", { text: " " + t.topReason })]) : null,
+    el("div", { class: "tabs" }, tabs),
+  ]));
+
+  if (data.listen_pending) {
+    root.appendChild(el("div", { class: "banner", text: t.listenPending || "the listen in router.json takes effect only after a restart" }));
+  }
+  if (data.config_error) {
+    root.appendChild(el("div", { class: "banner bad", text: "router.json: " + data.config_error }));
   }
 
-  // count is a number a person reads: 1,234 or 1.23M.
-  function count(n) {
-    n = Number(n) || 0;
-    const a = Math.abs(n);
-    if (a >= 1e9) return (n / 1e9).toFixed(2) + "B";
-    if (a >= 1e6) return (n / 1e6).toFixed(2) + "M";
-    if (a >= 1e3) return n.toLocaleString("en-US");
-    return String(n);
-  }
+  // the process, one line
+  const svc = data.service || {};
+  root.appendChild(el("div", { class: "procline" }, [
+    el("span", { text: "pid " + (data.pid || "") }),
+    el("span", { text: "↑ " + Math.round((data.uptime_s || 0) / 60) + "m" }),
+    el("span", { text: data.listen || "" }),
+    el("span", { text: (data.magpie_ok ? "magpie " + (data.magpie_version || "") : "magpie —") }),
+    el("span", { text: "service " + (svc.installed ? (svc.running ? t.running : t.notRunning) : t.notInstalled) }),
+  ]));
 
-  // money is a price, never NaN, and never "$0.00" for something real.
-  function money(n) {
-    n = Number(n);
-    if (!isFinite(n)) return "$0";
-    if (n === 0) return "$0";
-    if (n > 0 && n < 0.01) return "<$0.01";
-    if (n < 10) return "$" + n.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
-    if (n < 1000) return "$" + n.toFixed(2);
-    return "$" + n.toFixed(0);
-  }
-
-  // share is a percentage, and never NaN.
-  function pct(part, whole) {
-    const p = Number(part) || 0;
-    const w = Number(whole) || 0;
-    if (w <= 0) return "0%";
-    const v = (100 * p) / w;
-    if (!isFinite(v)) return "0%";
-    return (Math.round(v * 10) / 10).toString() + "%";
-  }
-
-  // mbridgeView is what the page shows of mbridge, from the snapshot
-  // mbridge published into the plugin's options (SP14 §7).
-  function mbridgeView(snapshot, lang) {
-    const t = text(lang);
-    // nothing published, or an object that is not a snapshot: an empty
-    // options object is not a snapshot, it is no snapshot
-    if (!snapshot || (!snapshot.seq && !snapshot.version)) {
-      return { none: true, text: t.mbridgeNone };
+  // the sessions that are running now
+  root.appendChild(el("h2", { text: t.live }));
+  const live = data.live || [];
+  if (live.length) {
+    const cards = el("div", { class: "cards" });
+    for (const c of live) cards.appendChild(liveCard(c));
+    root.appendChild(cards);
+    const extra = (data.live_total || 0) - live.length;
+    if (extra > 0) root.appendChild(el("div", { class: "muted", text: "+" + extra }));
+  } else {
+    root.appendChild(el("div", { class: "muted", text: t.noLive }));
+    // nothing is running: show the turns that just went through, so the
+    // section is not empty
+    if (turns.length) {
+      root.appendChild(el("h3", { class: "muted", text: t.justWent }));
+      const cards = el("div", { class: "cards" });
+      for (const ev of turns.slice(0, 4)) {
+        cards.appendChild(el("div", { class: "card" }, [
+          el("div", { class: "row1" }, [
+            el("span", { text: (ev.harness || t.unknown) + " · " + (ev.agent || "") }),
+            el("span", {}, [ev.tier, " ", tierChip(ev.tier || "?")]),
+          ]),
+          el("div", { class: "row2", text: clock(ev.t) + " · " + (ev.session || "").slice(0, 8) }),
+          el("div", { class: "row3 muted", text: reasonText(ev.reason) }),
+        ]));
+      }
+      root.appendChild(cards);
     }
-    const s = snapshot;
-    const cov = s.window && s.window.coverage ? s.window.coverage : { asked: 0, total: 0 };
-    const tiers = (s.window && s.window.tiers) || {};
-    const reasons = (s.window && s.window.reasons) || {};
-    const turnCount = Object.keys(tiers).reduce((a, k) => a + tiers[k], 0);
-    const topReason = Object.keys(reasons).sort((a, b) => reasons[b] - reasons[a])[0] || "";
-    const live = s.live || [];
-    // the decisions this process made are in memory (a restart empties
-    // them): the window's turns are the fallback
-    const decisions = (s.decisions && s.decisions.length)
-      ? s.decisions
-      : ((s.window && s.window.turns) || []);
-    const at = s.at ? new Date(s.at) : null;
-    const age = at && !isNaN(at)
-      ? Math.max(0, Math.round((Date.now() - at.getTime()) / 1000))
-      : null;
-    return {
-      none: false,
-      version: s.version || "",
-      pid: s.pid || 0,
-      uptime: s.uptime_s || 0,
-      listen: s.listen || "",
-      service: (s.service && s.service.running) ? t.running : ((s.service && s.service.installed) ? t.notRunning : t.notInstalled),
-      magpie: s.magpie_ok ? (s.magpie_version || "") : "—",
-      turnCount: turnCount,
-      coverage: cov.total ? Math.round((100 * cov.asked) / cov.total) + "%" : "—",
-      failures: (s.window && s.window.classify && s.window.classify.failures) || 0,
-      topReason: topReason,
-      age: age,
-      ageText: age === null ? "" : (age < 60 ? age + "s" : (age < 3600 ? Math.round(age / 60) + "m" : Math.round(age / 3600) + "h")),
-      live: live.map((c) => ({
-        session: (c.session || "").slice(0, 8),
-        harness: c.harness || t.unknown,
-        agent: c.agent || "",
-        tier: c.tier || "",
-        group: c.group || "",
-        reason: c.reason || "",
-        conf: c.tier_confidence,
-        turns: c.turns || 0,
-        tools: c.agent === "gateway" ? (c.tools || 0) + "/" + (c.tool_failures || 0) : null,
-        last: c.last_at || "",
-      })),
-      decisions: decisions.slice(0, 12).map((ev) => ({
-        time: ev.t || "",
-        clock: ev.t ? ev.t.slice(11, 19) : "",
-        harness: ev.harness || t.unknown,
-        agent: ev.agent || "",
-        tier: ev.tier || "",
-        advised: ev.classified_tier || "",
-        differs: !!(ev.classified_tier && ev.classified_tier !== ev.tier),
-        reason: ev.reason || "",
-        source: ev.classifier || ev.source || "",
-        conf: ev.tier_confidence,
-        ms: ev.latency_ms || 0,
-      })),
-      emptyLive: live.length === 0,
-      noDecisions: decisions.length === 0,
-    };
   }
+
+  // the decisions
+  root.appendChild(el("h2", { text: t.decisions }));
+  if (!turns.length) {
+    root.appendChild(el("div", { class: "muted", text: t.noDecisions }));
+  } else {
+    root.appendChild(decisionTable(turns));
+  }
+
+  // the classifier
+  root.appendChild(el("h2", { text: t.classifier }));
+  const cl = w.classify || { asked: 0, failures: 0, error_kinds: {} };
+  root.appendChild(kv([
+    [t.coverage, pct(cov.asked, cov.total) + "  (" + cov.asked + "/" + cov.total + ")"],
+    [t.failures, cl.failures + " / " + cl.asked],
+    ["", el("span", { class: "muted", text: t.askHint })],
+  ]));
+  if (cl.failures) {
+    const ul = el("ul", { class: "fixes" });
+    for (const [kind, n] of Object.entries(cl.error_kinds || {})) {
+      ul.appendChild(el("li", { text: kind + " × " + n + " — " + ((t.failureFix || {})[kind] || "") }));
+    }
+    root.appendChild(ul);
+  }
+  if (turns.length) {
+    const gt = el("table", { class: "wide" });
+    gt.appendChild(el("thead", {}, el("tr", {}, [
+      el("th", { text: "" }), el("th", { text: t.harness }),
+      el("th", { text: t.tierConf }), el("th", { text: t.dissatisfied }), el("th", { text: t.compact }),
+      el("th", { class: "num", text: t.classifyMs }), el("th", { class: "num", text: t.latency }),
+    ])));
+    const body = el("tbody");
+    for (const ev of turns.slice(0, 10)) {
+      const asked = !!ev.classifier || !!ev.classify_error;
+      body.appendChild(el("tr", { class: asked ? "" : "off" }, [
+        el("td", { class: "muted", text: clock(ev.t) }),
+        el("td", { text: ev.harness || t.unknown }),
+        el("td", {}, scoreCell(ev.tier_confidence, asked)),
+        el("td", {}, scoreCell(ev.dissatisfied, asked)),
+        el("td", {}, scoreCell(ev.compact, asked)),
+        el("td", { class: "num", text: asked && ev.classify_ms ? ev.classify_ms + "ms" :
+          (ev.classify_error ? t.failed : t.notMeasured) }),
+        el("td", { class: "num", text: ev.latency_ms ? ev.latency_ms + "ms" : t.notMeasured }),
+      ]));
+    }
+    gt.appendChild(body);
+    root.appendChild(gt);
+  }
+
+  // the distributions
+  root.appendChild(el("h2", { text: t.distributions }));
+  const dists = el("div", { class: "dists" });
+  dists.appendChild(distribution("tier", w.tiers, turnsCount));
+  dists.appendChild(distribution("reason", w.reasons, turnsCount));
+  dists.appendChild(distribution("harness", w.harnesses, turnsCount));
+  dists.appendChild(distribution("arm", w.arms, Object.values(w.arms || {}).reduce((a, b) => a + b, 0)));
+  root.appendChild(dists);
+
+  // the two arms
+  root.appendChild(el("h2", { text: t.arms }));
+  const rep = w.report || {};
+  const rows = [];
+  for (const arm of ["router", "control"]) {
+    const a = rep[arm];
+    if (!a || !a.sessions) continue; // an arm with nothing in it is not drawn
+    rows.push([arm, String(a.sessions), money(a.cost_median || 0), money(a.cost_p90 || 0),
+      String(a.merged_sessions || 0), String(a.manual_switch_sessions || 0)]);
+  }
+  if (rows.length) {
+    const at = el("table");
+    at.appendChild(el("thead", {}, el("tr", {}, [
+      el("th", { text: "arm" }), el("th", { class: "num", text: t.sessions }),
+      el("th", { class: "num", text: t.median }), el("th", { class: "num", text: t.p90 }),
+      el("th", { class: "num", text: t.merged }), el("th", { class: "num", text: t.manual }),
+    ])));
+    const body = el("tbody");
+    for (const r of rows) {
+      body.appendChild(el("tr", {}, r.map((cell, i) => el("td", { class: i ? "num" : "", text: cell }))));
+    }
+    at.appendChild(body);
+    root.appendChild(at);
+  } else {
+    root.appendChild(el("div", { class: "muted", text: "—" }));
+  }
+  const notes = [t.feedbackOnly,
+    t.unpriced + ": " + ((rep.router || {}).unpriced_requests || 0),
+    t.cacheWrite + ": " + money((rep.router || {}).cache_write_cost || 0)];
+  if (rep.sample_short) notes.push(t.sampleShort);
+  root.appendChild(el("div", { class: "muted", text: notes.join(" · ") }));
+  for (const c of w.calibrate || []) root.appendChild(calibrationTable(c));
+
+  // the configuration, last: it is reference, not the story
+  const cfg = data.config || {};
+  const th = cfg.thresholds || {};
+  const details = el("details", { class: "cfg" });
+  details.appendChild(el("summary", { text: t.config }));
+  details.appendChild(kv([
+    ["router_group", cfg.router_group],
+    ["default_tier", cfg.default_tier],
+    ["classifier", cfg.classifier],
+    ["classify_timeout_ms", String(cfg.classify_timeout_ms || "")],
+    ["escalate_turns", String(cfg.escalate_turns || "")],
+    ["cache_ttl_seconds", String(cfg.cache_ttl_seconds || "")],
+    ["thresholds", "tier_min " + th.tier_min + " · dissatisfied " + th.dissatisfied_min +
+      " · review " + th.review_min + " · compact " + th.compact_min],
+    ["review", (cfg.review || {}).mode + " · " + (cfg.review || {}).timeout_ms + "ms"],
+    ["experiment", ((cfg.experiment || {}).enabled ? "on " : "off ") +
+      (cfg.experiment || {}).router_percent + "% → " + (cfg.experiment || {}).control_tier],
+    ["fixed_agents", Object.entries(cfg.fixed_agents || {}).map(([a, tier]) => a + " → " + tier).join(", ")],
+    ["tiers", TIERS.map((name) => {
+      const tc = (cfg.tiers || {})[name] || {};
+      return name + " → " + (tc.group || "?") + " (" + (tc.claude_alias || "?") + ")";
+    }).join(" · ")],
+    ["", el("span", { class: "muted", text: t.configNote })],
+  ]));
+  root.appendChild(details);
+
+  // the restart button
+  const btn = el("button", { type: "button", class: "restart", text: t.restart });
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    btn.textContent = t.restarting;
+    try {
+      const res = await fetch("/v1/bridge/restart", { method: "POST" });
+      // the instruction is out, not the restart: the pid tells us when
+      btn.textContent = res.status === 202 ? t.restartAsked : t.restartRefused;
+      if (res.status !== 202) btn.disabled = false;
+    } catch (err) {
+      btn.textContent = String((err && err.message) || err);
+      btn.disabled = false;
+    }
+  });
+  root.appendChild(el("div", { class: "restartrow" }, btn));
+
+  // the honest boundaries
+  const foot = el("div", { class: "foot" });
+  foot.appendChild(el("ul", {}, t.foot.map((line) => el("li", { text: line }))));
+  root.appendChild(foot);
+}
 
   globalThis.MbridgeView = {
     TEXT,
-    STATUS_URL,
-    text,
-    mbridgeView,
+    REASONS,
+    TIERS,
+    el,
+    kv,
+    pct,
+    money,
+    ago,
+    clock,
+    reasonText,
+    tierChip,
+    turnsOf,
+    scoreCell,
+    bar,
+    liveCard,
+    decisionTable,
+    distribution,
+    calibrationTable,
+    render,
   };
 })();

@@ -123,7 +123,11 @@ func (b *pageBridge) publish(ctx context.Context, opts map[string]any) {
 	if b.payload == nil {
 		return
 	}
-	payload := b.payload("7d")
+	windowKind := "7d"
+	if p, ok := opts["period"].(string); ok && (p == "1d" || p == "7d" || p == "30d") {
+		windowKind = p
+	}
+	payload := b.payload(windowKind)
 	if payload == nil {
 		return
 	}

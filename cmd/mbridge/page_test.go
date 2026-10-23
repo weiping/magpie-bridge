@@ -216,3 +216,18 @@ func TestTheCommandFileRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestTheBridgePublishesTheWindowThePageSelected: if the page sets
+// period to 1d or 30d, mbridge publishes that window.
+func TestTheBridgePublishesTheWindowThePageSelected(t *testing.T) {
+	f := &fakeOptions{opts: map[string]any{"period": "30d"}}
+	var askedWindow string
+	b := newPageBridge(f.client(t), func(kind string) map[string]any {
+		askedWindow = kind
+		return map[string]any{"version": "0.3.5", "window": map[string]any{"kind": kind}}
+	}, nil)
+	b.tick(context.Background())
+	if askedWindow != "30d" {
+		t.Fatalf("asked window %q, want 30d", askedWindow)
+	}
+}
