@@ -443,6 +443,18 @@ clients/magpie-page/
 `{period, since, calls, errors, input, output, cacheRead, cost, models[{model, calls, input, output, cost}]}`
 （前 20 个模型）。
 
+### 4.2b mbridge 自己的状态（2026-10-23 加）
+
+页面下半部分是 **mbridge 发布的快照**（§7 的通道）：
+- 四个数：过去 7 天的轮数、问了分类器的比例、分类失败次数、最常见的 reason；
+- 「正在选档的会话」：此刻在走 mbridge 的会话卡片（没有就说没有）；
+- 「最近判档」：最近 12 轮判档（时间、harness、agent、最终档、**分类器建议的档**、
+  reason、置信度；两者不一致时加粗）；
+- 快照的年龄（"发布于 4s"）——快照不是实时的，年龄必须说；
+- 两个按钮：「要最新数字」（让 mbridge 立刻发）和「重启 mbridge」。
+
+magpie 自己的用量（周期、四块数、模型表）仍在上面，两部分是同一页。
+
 ### 4.3 显示
 
 照 `packages/usage` 的形状，不重新发明：周期切换（今天 / 7 天 / 30 天）+ 四块
@@ -558,24 +570,55 @@ mbridge（Go）：
   代码里还有 `review` 和 `proxy_passthrough`）：改注释不影响行为，但它属于"顺手清理"，
   混在这个 SP 里会让 diff 变难读。**要改就单独一个 commit。**
 
-## 7. 记下来：一条走不通的路，和它为什么会走不通
+## 7. 记下来：options 通道，以及它的代价（2026-10-23 改：走这条路）
 
 **mbridge 的状态能不能经 `magpie.options` 推进 magpie 页面、让页面点一下就重启？**
-能，机制都在，但本 SP 不走。留着，因为结论不显然：
+能。本 SP **走这条路**（原来说「不走」，那条判断的依据后来被实测推翻了）。
 
-- 页面写 options（`/api/plugin-pages/options`，按 spec 查，别的插件读不到），
-  mbridge 在进程外读得到 —— 数据和指令都是通的。
-- 心跳可以走页面自己的 `magpie.options.set()`（**零进程**），mbridge 那边每几秒读一次
-  `plugins.json` 合并写回；`magpie plugin options` CLI 是 mbridge 侧写 options 的正解。
-- **唯一的坑**就是 §4.4：走 CLI 每次写都退休 host，所以心跳必须走页面那侧。
+机制：页面写 options（`/api/plugin-pages/options`），mbridge 在进程外读得到 ——
+数据和指令都是通的。两边共用 magpie 为该插件保存的那块 JSON：
 
-不走它，是因为 §1 的分工更干净：状态、报表、重启的"正主"是 mbridge 进程，
-网页长在它身上能显示 magpie 永远给不了的东西；magpie 页面专心做用量速览，
-不用每 5 秒推一次快照，也不用把快照塞进用户的 `plugins.json`。
+```
+{
+  "period": "7d", "sort": "tokens",     // 页面自己的
+  "mbridge": { "seq": 12, "at": "…", … },  // mbridge 发布的快照
+  "cmd": { "id": "restart", "seq": 5 }     // 页面给 mbridge 的指令
+}
+```
 
-**真要把状态放进 magpie 窗口**，上游给一条更好的路更省：给 `plugin.PageReads` 加一种
-由插件宿主回答的 read（不是那个两项的封闭表）。写法照社区给 `usage:breakdown` 提需求的
-那篇（yetone/magpie#2574）。本 SP 不等它。
+**各写各的键，写之前先读再合并**（谁也不许把对方的键擦掉）：
+- 页面写 `period` / `sort` / `cmd`（写的是整个对象，所以它读到的 `mbridge` 键会被原样带回）；
+- mbridge 写 `mbridge`（它读到的 `period` / `sort` / `cmd` 原样带回）。
+- 页面把整个对象换掉时，mbridge 的快照会丢：mbridge 靠 `seq` 发现「文件里没有我的快照」
+  （`seq` 比自己记的小），下一轮就补发。
+
+**实测的代价（2026-10-23，这台机器）**：
+| 动作 | 耗时 | 副作用 |
+| --- | --- | --- |
+| 读 options（`magpie plugin options <spec>`） | **0.17 s** | 无 |
+| 写 options（同上，带 JSON） | **0.17 s** | **不退休 magpie 的插件宿主**（写前后的 host pid 相同、etime 连续） |
+| `magpie plugin list`（枚举全部插件） | 7 s | 与本通道无关，别用 |
+
+**原来「不走」的理由是「写一次要退休宿主、5–18 s」——这条被实测推翻了**：写 options
+并不退休宿主（宿主是给 middleware 用的，页面插件没有宿主）。写一次 0.17 s，所以
+mbridge 可以按「内容变了才发、最快 15 秒一次」的节奏发布，页面每 5 秒读一次（页面读
+options 是进程内的，零成本）。
+
+**为什么现在走这条路**（原来的理由已经不成立）：状态、报表、重启的正主是 mbridge 进程，
+网页长在它身上能显示 magpie 永远给不了的东西；而 magpie 窗口里的用户看不到那个网页。
+把 mbridge 的快照推进 magpie 的页面，两边各得其所：**mbridge 仍然是唯一的事实来源，
+magpie 窗口里也能看见它**。
+
+**边界不变**（§2、§6）：
+- 页面仍然**够不着 mbridge**：沙箱里 `connect-src 'none'`，它不请求 mbridge，只读 magpie
+  为它存的那块 JSON。所以**窗口里的 mbridge 数字是快照，不是实时**：页面显示快照的年龄
+  （"发布于 4s"），mbridge 最多 15 秒发一次，页面点「要最新数字」会让 mbridge 立刻发。
+- 页面写的 `cmd` 是**指令**：mbridge 读到就做（`refresh` 立刻发快照，`restart` 走
+  `service.Manager.Restart()`）。指令带 `seq`，mbridge 只做一次（`seq` 落盘到
+  `~/.config/mbridge/page-command.json`，重启后不重复执行）。
+- 「重启 mbridge」在 magpie 窗口里也是同源的：它写 options，不发 HTTP 请求，所以
+  §3.3 的同源检查管不到它 —— **能写 options 就能让 mbridge 重启**，这和「能写
+  plugins.json 就能重启」是同一个信任级别（§5.3）。
 
 ## 8. 顺序
 

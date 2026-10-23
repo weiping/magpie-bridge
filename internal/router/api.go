@@ -85,7 +85,7 @@ type Deps struct {
 	Windows func(kind string) WindowView
 
 	mu        sync.Mutex
-	decisions []Event // ring of the last 20 decisions, for /v1/bridge/router
+	decisions []Event          // ring of the last 20 decisions, for /v1/bridge/router
 	live      map[string]Event // key → the last decision that judged it (SP14 §C)
 }
 
@@ -503,6 +503,17 @@ func (d *Deps) lineage(w http.ResponseWriter, r *http.Request) {
 
 // status handles GET /v1/bridge/router: what `mbridge router status` reads.
 func (d *Deps) status(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, d.StatusPayload(WindowKind(r.URL.Query().Get("window"))))
+}
+
+// StatusPayload is what mbridge tells about itself: the process, the
+// configuration in force, the sessions running now, the recent decisions
+// and the aggregate over a window (SP14 §3.1/§3.2).
+//
+// The endpoint and the magpie page's snapshot are the same payload: the
+// page gets it through magpie's plugin options, the browser through
+// /v1/bridge/router, and the two can never drift apart.
+func (d *Deps) StatusPayload(kind string) map[string]any {
 	tiers := map[string]map[string]string{}
 	for tier, tc := range d.Config.Tiers {
 		tiers[string(tier)] = map[string]string{"group": tc.Group, "claude_alias": tc.ClaudeAlias}
@@ -515,33 +526,32 @@ func (d *Deps) status(w http.ResponseWriter, r *http.Request) {
 	v := d.StatusView()
 	// SP14 §3.2: the aggregate comes from the background aggregator,
 	// computed every thirty seconds; window only moves these sections.
-	kind := WindowKind(r.URL.Query().Get("window"))
 	view := WindowView{Kind: kind}
 	if d.Windows != nil {
 		view = d.Windows(kind)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	return map[string]any{
 		"valid":        true,
 		"router_group": d.Config.RouterGroup,
 		// SP10: the clients wait this long for /turn
-		"turn_budget_ms":   d.Config.TurnBudgetMs(),
-		"tiers":            tiers,
-		"experiment":       v.Config.Experiment,
-		"decisions":        decisions,
-		"version":          v.Version,
-		"pid":              v.PID,
-		"uptime_s":         v.UptimeS,
-		"listen":           v.Listen,
-		"listen_pending":   v.ListenPending,
-		"magpie_version":   v.MagpieVersion,
-		"magpie_ok":        v.MagpieOK,
-		"service":          v.Service,
-		"config_error":     v.ConfigError,
-		"config":           v.Config,
-		"live":             v.Live,
-		"live_total":       d.liveTotal(LiveWindow),
-		"window":           view,
-	})
+		"turn_budget_ms": d.Config.TurnBudgetMs(),
+		"tiers":          tiers,
+		"experiment":     v.Config.Experiment,
+		"decisions":      decisions,
+		"version":        v.Version,
+		"pid":            v.PID,
+		"uptime_s":       v.UptimeS,
+		"listen":         v.Listen,
+		"listen_pending": v.ListenPending,
+		"magpie_version": v.MagpieVersion,
+		"magpie_ok":      v.MagpieOK,
+		"service":        v.Service,
+		"config_error":   v.ConfigError,
+		"config":         v.Config,
+		"live":           v.Live,
+		"live_total":     d.liveTotal(LiveWindow),
+		"window":         view,
+	}
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

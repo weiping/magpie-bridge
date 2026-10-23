@@ -46,3 +46,22 @@ h1 { margin: 0; font-size: 1.05em; font-weight: 600; }
 .addr { user-select: all; color: var(--magpie-fg, inherit); }
 .cmd { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--magpie-fg, inherit); }
 .error { color: var(--magpie-danger, #b42318); margin: 8px 0 0; }
+
+/* the mbridge section: what mbridge published into the options */
+.mbridge { margin-top: 16px; padding-top: 10px; border-top: 1px solid var(--magpie-border, #e3e3e3); }
+.mbridge-head { display: flex; justify-content: space-between; align-items: baseline; }
+.mbridge-head h2 { margin: 0 0 4px; font-size: 1em; font-weight: 600; }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 6px 0 10px; }
+.stat { padding: 5px 7px; border: 1px solid var(--magpie-border, #e3e3e3); border-radius: 6px; }
+.stat b { display: block; font-size: 1.1em; font-variant-numeric: tabular-nums; }
+.stat span { color: var(--magpie-fg-muted, #6b6b6b); font-size: .85em; }
+.cards { display: grid; gap: 5px; margin-bottom: 10px; }
+.card { padding: 5px 7px; border: 1px solid var(--magpie-border, #e3e3e3); border-radius: 6px; }
+.card .row1 { display: flex; justify-content: space-between; gap: .5rem; }
+.card .row2 { color: var(--magpie-fg-muted, #6b6b6b); font-size: .85em; }
+.mbridge-table td { padding: 2px 4px; }
+.mbridge-table td.differs { font-weight: 600; }
+.mbridge-actions { display: flex; gap: 6px; margin-top: 8px; }
+.btn { font: inherit; padding: 2px 9px; border-radius: 5px; cursor: pointer;
+       border: 1px solid var(--magpie-border, #d8d8d8); background: var(--magpie-bg-subtle, transparent); color: inherit; }
+.btn[disabled] { opacity: .6; cursor: default; }

@@ -102,7 +102,7 @@ func TestTheClassifyFailuresFallIntoThreeKinds(t *testing.T) {
 	events := winEvents(now)
 	events = append(events, Event{Kind: "decide", Time: now.Add(-time.Hour).Format(time.RFC3339),
 		Session: "s7", Harness: "codex", Agent: "main", Tier: TierFast, Reason: "R7-carry",
-		Classifier: "typesafe/jev-latest",
+		Classifier:    "typesafe/jev-latest",
 		ClassifyError: "canceled: the client stopped waiting: context canceled"})
 	v := AggregateWindow(Config{}, events, nil, "7d", now)
 	if v.Classify.Failures != 3 {
@@ -260,6 +260,7 @@ func writeLog(t *testing.T, path string, events []Event) {
 		}
 	}
 }
+
 // TestAFailedClassificationIsStillAnAskedOne: a turn whose classification
 // failed has no Classifier (there was no verdict) but it did ask, and the
 // failure is counted among the asked ones (SP14 §E). Counting only the
@@ -295,7 +296,7 @@ func TestTheWindowKeepsTheLastTurns(t *testing.T) {
 	var events []Event
 	for i := 0; i < 15; i++ {
 		events = append(events, Event{Kind: "decide",
-			Time: now.Add(-time.Duration(15-i) * time.Hour).Format(time.RFC3339),
+			Time:    now.Add(-time.Duration(15-i) * time.Hour).Format(time.RFC3339),
 			Session: fmt.Sprintf("s-%02d", i), Harness: "codex", Agent: "main",
 			Tier: TierBalanced, Reason: "R6-adopt", Classifier: "typesafe/jev-latest"})
 	}

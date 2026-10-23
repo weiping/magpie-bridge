@@ -8,6 +8,21 @@
 (async () => {
   const V = globalThis.MbridgeView;
   const $ = (id) => document.getElementById(id);
+  // el makes an element with text and class
+  function el(tag, attrs, kids) {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (v === undefined || v === null) continue;
+      if (k === "text") n.textContent = v;
+      else if (k === "class") n.className = v;
+      else n.setAttribute(k, v);
+    }
+    for (const kid of [].concat(kids || [])) {
+      if (kid === undefined || kid === null) continue;
+      n.appendChild(typeof kid === "object" ? kid : document.createTextNode(String(kid)));
+    }
+    return n;
+  }
   const theme = await magpie.ready;
   let lang = theme.lang;
 
@@ -24,6 +39,10 @@
     sort: V.SORTS.includes(opts.sort) ? opts.sort : "tokens",
     summary: null,
     error: null,
+    // what mbridge published into the options (SP14 §7)
+    mbridge: null,
+    // the sequence number of the last command the page sent
+    cmdSeq: 0,
   };
 
   function words() {
@@ -42,9 +61,83 @@
     });
   }
 
+  // paintMbridge draws what mbridge published: its numbers, the sessions
+  // running now, and the decisions it made.
+  function paintMbridge() {
+    const t = V.text(lang);
+    const v = V.mbridgeView(state.mbridge, lang);
+    $("mbridge-age").textContent = v.none ? "" : (t.mbridgeAge + " " + v.ageText);
+    $("mbridge-empty").textContent = v.none ? v.text : (v.noDecisions ? t.noDecisions : "");
+    $("mbridge-empty").hidden = !(v.none || v.noDecisions);
+    const stats = $("mbridge-stats");
+    stats.textContent = "";
+    if (!v.none) {
+      const items = [
+        [String(v.turnCount), t.mbridgeTurns],
+        [v.coverage, t.mbridgeCoverage],
+        [String(v.failures), t.mbridgeFailures],
+        [v.topReason || "—", t.reason],
+      ];
+      for (const [value, label] of items) {
+        const cell = document.createElement("div");
+        cell.className = "stat";
+        const b = document.createElement("b");
+        b.textContent = value;
+        const s2 = document.createElement("span");
+        s2.textContent = label;
+        cell.append(b, s2);
+        stats.append(cell);
+      }
+    }
+    const live = $("mbridge-live");
+    live.textContent = "";
+    if (v.none) {
+      live.append(el("div", { class: "muted", text: t.mbridgeNone }));
+    } else if (v.emptyLive) {
+      live.append(el("div", { class: "muted", text: t.mbridgeNoLive }));
+    } else {
+      for (const c of v.live) {
+        const bits = [];
+        if (c.reason) bits.push(c.reason);
+        if (c.conf !== undefined && c.conf !== null) bits.push("conf " + c.conf.toFixed(2));
+        if (c.tools !== null && c.tools !== undefined) bits.push(t.tools + " " + c.tools);
+        live.append(el("div", { class: "card" }, [
+          el("div", { class: "row1" }, [
+            el("span", { text: c.harness + " · " + c.agent }),
+            el("span", { text: c.tier + (c.group ? " → " + c.group : "") }),
+          ]),
+          el("div", { class: "row2", text: c.session + " · " + bits.join(" · ") }),
+        ]));
+      }
+    }
+    const body = $("mbridge-decisions");
+    body.textContent = "";
+    for (const d of v.decisions || []) {
+      const tr = document.createElement("tr");
+      const cells = [
+        [d.clock, "muted"],
+        [d.harness, ""],
+        [d.agent, ""],
+        [d.tier, ""],
+        [d.advised, d.differs ? "differs" : "muted"],
+        [d.reason, "muted"],
+        [d.conf === undefined || d.conf === null ? "—" : d.conf.toFixed(2), "num"],
+      ];
+      for (const [text, cls] of cells) {
+        const td = document.createElement("td");
+        if (cls) td.className = cls;
+        td.textContent = text;
+        tr.append(td);
+      }
+      body.append(tr);
+    }
+  }
+
   function paint() {
     pick("periods", "period", state.period);
     pick("sorts", "sort", state.sort);
+    // mbridge's part does not depend on magpie's usage
+    paintMbridge();
     const s = state.summary;
     if (!s) return;
     $("since").textContent = V.since(s, lang);
@@ -98,7 +191,21 @@
     }
   }
 
+  // readOptions reads the plugin's options: the page's period and sort,
+  // and what mbridge published there.
+  async function readOptions() {
+    try {
+      const o = (await magpie.options.get()) || {};
+      if (V.PERIODS.includes(o.period)) state.period = o.period;
+      if (V.SORTS.includes(o.sort)) state.sort = o.sort;
+      state.mbridge = o.mbridge || null;
+    } catch {
+      // the options are not readable: keep what we have
+    }
+  }
+
   async function load() {
+    await readOptions();
     try {
       state.summary = await magpie.read("usage:summary", { period: state.period });
       state.error = null;
@@ -106,6 +213,23 @@
       state.error = (e && e.message) || String(e);
     }
     paint();
+  }
+
+  // command asks mbridge to do something. The sequence number makes it
+  // one-shot: the page repeats it until mbridge answers, and mbridge
+  // runs it once.
+  async function command(id) {
+    state.cmdSeq += 1;
+    const cmd = { id: id, seq: state.cmdSeq };
+    try {
+      const o = (await magpie.options.get()) || {};
+      o.cmd = cmd;
+      await magpie.options.set(o);
+    } catch (e) {
+      // mbridge will not hear it; the page says so
+      return false;
+    }
+    return true;
   }
 
   // magpie takes one options write a second: a quick second click is
@@ -116,6 +240,8 @@
     saving = setTimeout(async () => {
       saving = null;
       try {
+        // the whole object is replaced: mbridge's key goes with it, and
+        // mbridge puts its snapshot back on its next round
         opts = (await magpie.options.set({ ...opts, period: state.period, sort: state.sort })) || opts;
       } catch {
         // not remembering is not worth an error on the page
@@ -147,6 +273,27 @@
     b.textContent = V.sortLabel(b.dataset.sort, lang);
   }
   $("addr").textContent = V.STATUS_URL;
+  $("mbridge-ask").textContent = V.text(lang).mbridgeAsk;
+  $("mbridge-restart").textContent = V.text(lang).mbridgeRestart;
+  $("mbridge-ask").addEventListener("click", async () => {
+    const b = $("mbridge-ask");
+    const t = V.text(lang);
+    b.disabled = true;
+    b.textContent = t.mbridgeAsking;
+    const ok = await command("refresh");
+    if (!ok) { b.disabled = false; b.textContent = t.mbridgeAsk; }
+    // mbridge publishes and the next poll picks it up
+    setTimeout(() => { b.disabled = false; b.textContent = t.mbridgeAsk; load(); }, 3000);
+  });
+  $("mbridge-restart").addEventListener("click", async () => {
+    const b = $("mbridge-restart");
+    const t = V.text(lang);
+    b.disabled = true;
+    b.textContent = t.mbridgeRestarting;
+    const ok = await command("restart");
+    if (!ok) { b.disabled = false; b.textContent = t.mbridgeRestart; return; }
+    b.textContent = t.mbridgeRestartAsked;
+  });
   words();
   await load();
   setInterval(load, 60000);

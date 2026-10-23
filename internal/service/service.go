@@ -60,7 +60,8 @@ func Unit(goos, home, configDir, exe string) (path string, content []byte) {
 func UnitFor(goos, home, configDir, exe, user string) (path string, content []byte) {
 	switch goos {
 	case "darwin":
-		return filepath.Join(home, "Library", "LaunchAgents", Label+".plist"), []byte(fmt.Sprintf(plist, Label, xmlEscape(exe), xmlEscape(home)))
+		return filepath.Join(home, "Library", "LaunchAgents", Label+".plist"),
+			[]byte(fmt.Sprintf(plist, Label, xmlEscape(exe), xmlEscape(home), servicePath(home)))
 	case "windows":
 		uid := ""
 		if user != "" {
@@ -68,8 +69,21 @@ func UnitFor(goos, home, configDir, exe, user string) (path string, content []by
 		}
 		return filepath.Join(configDir, Name+"-task.xml"), []byte(fmt.Sprintf(taskXML, uid, uid, xmlEscape(exe)))
 	default:
-		return filepath.Join(home, ".config", "systemd", "user", Name+".service"), []byte(fmt.Sprintf(systemdUnit, exe))
+		return filepath.Join(home, ".config", "systemd", "user", Name+".service"),
+			[]byte(fmt.Sprintf(systemdUnit, exe, servicePath(home)))
 	}
+}
+
+// servicePath is the PATH the service runs with: the standard
+// directories, plus the user's own bin, where magpie's CLI lives. Without
+// it the service cannot run magpie at all — not the usage CSV for the
+// report, not the plugin options for the magpie page.
+func servicePath(home string) string {
+	parts := []string{filepath.Join(home, ".local", "bin"), "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"}
+	if home == "" {
+		parts = parts[1:]
+	}
+	return strings.Join(parts, ":")
 }
 
 const plist = `<?xml version="1.0" encoding="UTF-8"?>
@@ -86,6 +100,8 @@ const plist = `<?xml version="1.0" encoding="UTF-8"?>
 	<key>EnvironmentVariables</key>
 	<dict>
 		<key>HOME</key>
+		<string>%s</string>
+		<key>PATH</key>
 		<string>%s</string>
 	</dict>
 	<key>RunAtLoad</key>
@@ -104,6 +120,7 @@ After=network.target
 
 [Service]
 ExecStart=%s serve
+Environment="PATH=%s"
 Restart=on-failure
 RestartSec=3
 

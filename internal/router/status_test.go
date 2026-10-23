@@ -14,10 +14,10 @@ import (
 // in force, not the file's text (SP14 §B).
 func TestTheStatusViewReportsTheConfigWithDefaults(t *testing.T) {
 	d := &Deps{
-		Config:   Config{Tiers: map[Tier]TierCfg{TierFast: {Group: "group/fast"}}},
-		Version:  "0.3.2",
+		Config:    Config{Tiers: map[Tier]TierCfg{TierFast: {Group: "group/fast"}}},
+		Version:   "0.3.2",
 		StartedAt: time.Now().Add(-90 * time.Second),
-		Listen:   "127.0.0.1:3426",
+		Listen:    "127.0.0.1:3426",
 		Service: func(context.Context) ServiceStatus {
 			return ServiceStatus{Installed: true, Running: true, Detail: "running"}
 		},

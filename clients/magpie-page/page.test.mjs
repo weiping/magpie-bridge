@@ -11,7 +11,7 @@ import { join } from "node:path";
 // The test loads it the same way and reads what it put on globalThis.
 await import("./page/view.js");
 const V = globalThis.MbridgeView;
-const { count, money, pct, tiles, rows } = V;
+const { count, money, pct, tiles, rows, mbridgeView } = V;
 
 const dir = import.meta.dir;
 const pageDir = join(dir, "page");
@@ -169,7 +169,59 @@ test("the page says what it does not know", () => {
   expect(V.text("en").disclaimer).toMatch(/everything magpie recorded/);
   expect(V.text("zh").empty).toBe("这个区间没有调用");
   expect(V.text("zh").disclaimer).toMatch(/magpie 记下的全部用量/);
-  // no tier anywhere: magpie records the model that answered
-  const src = read("app.js") + read("view.js");
-  expect(src).not.toMatch(/\btier\b/);
+  // no tier attribution in the usage part: magpie records the model that
+  // answered, and which tier it was is mbridge's business. (mbridge's
+  // own section does show tiers — it is mbridge's own data.)
+  const view = read("view.js");
+  const usage = view.slice(view.indexOf("function tiles"), view.indexOf("function since"));
+  expect(usage).not.toMatch(/tier/i);
+  // and the usage rows are models, not tiers
+  expect(rows(SUMMARY, "tokens", "en")[0].model).toBe("kimi/kimi-k2");
+});
+
+/* 7. the mbridge snapshot the page shows: what mbridge published into
+   the plugin's options (SP14 §7). */
+test("the mbridge snapshot is read out of the options", () => {
+  const snapshot = {
+    version: "0.3.5+sp14", pid: 5574, uptime_s: 120, listen: "127.0.0.1:3426",
+    service: { installed: true, running: true },
+    magpie_ok: true, magpie_version: "0.1.1318",
+    at: new Date().toISOString(), seq: 12,
+    live: [{ session: "3c8f9a12aabb", harness: "codex", agent: "main", tier: "balanced",
+             group: "group/mb-balanced", reason: "R6-adopt", tier_confidence: 0.82, turns: 7,
+             tool_failures: 0, tools: 0, last_at: new Date().toISOString() }],
+    decisions: [{ t: "2026-10-22T23:20:41Z", harness: "pi", agent: "main", tier: "balanced",
+                  classified_tier: "fast", reason: "R6-adopt", source: "jev",
+                  classifier: "typesafe/jev-latest", tier_confidence: 0.61, latency_ms: 1766 }],
+    window: { kind: "7d", coverage: { asked: 341, total: 349 }, classify: { failures: 40 },
+              tiers: { fast: 155, balanced: 104 }, reasons: { "R6-adopt": 167 } },
+  };
+  const v = mbridgeView(snapshot, "zh");
+  expect(v.none).toBe(false);
+  expect(v.turnCount).toBe(259);
+  expect(v.coverage).toBe("98%");
+  expect(v.failures).toBe(40);
+  expect(v.topReason).toBe("R6-adopt");
+  expect(v.live.length).toBe(1);
+  expect(v.live[0].session).toBe("3c8f9a12");
+  expect(v.decisions.length).toBe(1);
+  expect(v.decisions[0].differs).toBe(true);
+  expect(v.decisions[0].clock).toBe("23:20:41");
+  // the age is shown, so a stale snapshot says so
+  expect(typeof v.ageText).toBe("string");
+  // no snapshot at all
+  const none = mbridgeView(null, "en");
+  expect(none.none).toBe(true);
+});
+
+test("the page asks mbridge for fresh numbers and for a restart", () => {
+  const app = read("app.js");
+  // the commands are written into the options, with a sequence number
+  expect(app).toMatch(/command\("refresh"\)/);
+  expect(app).toMatch(/command\("restart"\)/);
+  expect(app).toMatch(/o\.cmd = cmd/);
+  // the page reads mbridge's snapshot out of the options
+  expect(app).toMatch(/state\.mbridge = o\.mbridge/);
+  // and it does not fetch anything: the sandbox has no network
+  expect(app).not.toMatch(/\bfetch\(/);
 });

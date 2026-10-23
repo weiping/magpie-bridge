@@ -51,8 +51,32 @@ func serveCmd(args []string) error {
 		r.windows.Config = &r.deps.Config
 	}
 	go r.windows.Run(ctx)
+	// the magpie page: mbridge publishes its state into the plugin's
+	// options, and runs the commands the page leaves there (SP14 §7)
+	bridge := newPageBridge(magpie.New(""), r.statusPayload, restartMbridge)
+	bridge.lastCmdSeq = pageCommandDone()
+	go bridge.run(ctx)
 	log.Printf("mbridge on %s, magpie at %s", r.listen, r.target)
 	return proxy.Serve(ctx, r.listen, r)
+}
+
+// statusPayload is what mbridge tells about itself right now. The reloader
+// swaps it when router.json changes, so the page always sees the config
+// in force.
+func (r *reloader) statusPayload(kind string) map[string]any {
+	r.mu.Lock()
+	deps := r.deps
+	r.mu.Unlock()
+	if deps == nil {
+		return nil
+	}
+	return deps.StatusPayload(kind)
+}
+
+// restartMbridge restarts mbridge through its service manager: the
+// running process is the old binary, the supervisor brings the new one up.
+func restartMbridge(ctx context.Context) error {
+	return service.New().Restart(ctx)
 }
 
 // reloader serves mbridge from router.json as it is now: the service

@@ -402,14 +402,24 @@ mbridge 的会话卡片、最近判档、分类器（配置 / 覆盖率 / 失败
 ## magpie 窗口里的 mbridge 页面
 
 ```sh
-magpie plugin add ./clients/magpie-page     # 文件夹插件：改源码后重开一个 magpie 就是新的
+magpie plugin add @weiping/mbridge-page     # 已发布到 npm
+magpie plugin add ./clients/magpie-page      # 或者从源码装：改完重开一个 magpie 就是新的
 magpie plugin --json                         # 确认装上了（plugin list 这个子命令不存在）
 ```
 
-它只显示 magpie 记下的用量（周期切换、四块数、模型表）——magpie 的页面插件跑在
-`iframe sandbox="allow-scripts"` 里，`connect-src 'none'`，够不着 mbridge，所以
-mbridge 的状态只在页面上给一个可选择的地址。详见
-[`clients/magpie-page/README.md`](clients/magpie-page/README.md)。
+页面里有两半：
+- **magpie 记下的用量**：周期切换（今天 / 7 天 / 30 天）、四块数、模型表。
+- **mbridge 自己的状态**：过去 7 天的轮数、分类器覆盖率与失败数、此刻在走 mbridge 的
+  会话、最近判档（最终档与分类器建议的档分开显示），以及「要最新数字」「重启 mbridge」
+  两个按钮。
+
+magpie 的页面插件跑在 `iframe sandbox="allow-scripts"` 里，`connect-src 'none'`，
+**够不着 mbridge**。所以这一半是 mbridge 主动把快照写进 magpie 为该插件保存的那块
+options 里的（页面在进程内读，零成本；mbridge 写一次约 0.2 s，不影响 magpie 的其它插件）。
+快照**不是实时的**：页面显示它的年龄，点「要最新数字」会让 mbridge 立刻发一次。
+
+详见 [`clients/magpie-page/README.md`](clients/magpie-page/README.md) 与
+spec 的 §7（这条路一开始被否掉过，后来实测推翻了否掉的理由）。
 
 ## 参考
 

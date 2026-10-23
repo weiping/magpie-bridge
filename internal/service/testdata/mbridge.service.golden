@@ -4,6 +4,7 @@ After=network.target
 
 [Service]
 ExecStart=/opt/q/mbridge serve
+Environment="PATH=/home/u/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 Restart=on-failure
 RestartSec=3
 

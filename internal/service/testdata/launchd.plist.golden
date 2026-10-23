@@ -13,6 +13,8 @@
 	<dict>
 		<key>HOME</key>
 		<string>/home/u</string>
+		<key>PATH</key>
+		<string>/home/u/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
 	</dict>
 	<key>RunAtLoad</key>
 	<true/>

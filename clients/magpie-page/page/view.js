@@ -33,6 +33,32 @@
         "This is everything magpie recorded. It is mbridge's usage only when every client goes through mbridge; whatever you use magpie for directly is in here too.",
       status: "mbridge's own status:",
       restart: "restart it with",
+      mbridge: "mbridge",
+      mbridgeNone: "mbridge has not published anything yet",
+      mbridgeAge: "published",
+      mbridgeLive: "sessions running now",
+      mbridgeNoLive: "no session is going through mbridge right now",
+      mbridgeDecisions: "recent decisions",
+      mbridgeWindow: "the last",
+      mbridgeTurns: "turns",
+      mbridgeCoverage: "asked the classifier",
+      mbridgeFailures: "failures",
+      mbridgeAsk: "ask for fresh numbers",
+      mbridgeAsking: "asking…",
+      mbridgeRestart: "restart mbridge",
+      mbridgeRestarting: "restarting…",
+      mbridgeRestartAsked: "restart asked for",
+      mbridgeRestartRefused: "refused",
+      tier: "tier",
+      advised: "advised",
+      reason: "reason",
+      conf: "confidence",
+      unknown: "unknown",
+      running: "running",
+      notRunning: "installed, not running",
+      notInstalled: "not installed",
+      tools: "tools",
+      noDecisions: "no decision yet",
     },
     zh: {
       title: "mbridge",
@@ -58,6 +84,32 @@
         "这是 magpie 记下的全部用量。客户端都走 mbridge 时它才等于 mbridge 的用量；你直接用 magpie 的那部分也在里面。",
       status: "mbridge 自己的状态：",
       restart: "重启用",
+      mbridge: "mbridge",
+      mbridgeNone: "mbridge 还没有发布过任何东西",
+      mbridgeAge: "发布于",
+      mbridgeLive: "正在选档的会话",
+      mbridgeNoLive: "现在没有会话在走 mbridge",
+      mbridgeDecisions: "最近判档",
+      mbridgeWindow: "最近",
+      mbridgeTurns: "轮",
+      mbridgeCoverage: "问了分类器",
+      mbridgeFailures: "失败",
+      mbridgeAsk: "要最新数字",
+      mbridgeAsking: "正在要…",
+      mbridgeRestart: "重启 mbridge",
+      mbridgeRestarting: "正在重启…",
+      mbridgeRestartAsked: "已发出重启指令",
+      mbridgeRestartRefused: "被拒绝",
+      tier: "档",
+      advised: "建议",
+      reason: "reason",
+      conf: "置信度",
+      unknown: "未知",
+      running: "在跑",
+      notRunning: "装了，没在跑",
+      notInstalled: "没装",
+      tools: "工具",
+      noDecisions: "还没有判档",
     },
   };
 
@@ -155,6 +207,73 @@
     return t["sort" + sort.charAt(0).toUpperCase() + sort.slice(1)] || sort;
   }
 
+  // mbridgeView is what the page shows of mbridge, from the snapshot
+  // mbridge published into the plugin's options (SP14 §7).
+  function mbridgeView(snapshot, lang) {
+    const t = text(lang);
+    if (!snapshot) {
+      return { none: true, text: t.mbridgeNone };
+    }
+    const s = snapshot;
+    const cov = s.window && s.window.coverage ? s.window.coverage : { asked: 0, total: 0 };
+    const tiers = (s.window && s.window.tiers) || {};
+    const reasons = (s.window && s.window.reasons) || {};
+    const turnCount = Object.keys(tiers).reduce((a, k) => a + tiers[k], 0);
+    const topReason = Object.keys(reasons).sort((a, b) => reasons[b] - reasons[a])[0] || "";
+    const live = s.live || [];
+    // the decisions this process made are in memory (a restart empties
+    // them): the window's turns are the fallback
+    const decisions = (s.decisions && s.decisions.length)
+      ? s.decisions
+      : ((s.window && s.window.turns) || []);
+    const at = s.at ? new Date(s.at) : null;
+    const age = at && !isNaN(at)
+      ? Math.max(0, Math.round((Date.now() - at.getTime()) / 1000))
+      : null;
+    return {
+      none: false,
+      version: s.version || "",
+      pid: s.pid || 0,
+      uptime: s.uptime_s || 0,
+      listen: s.listen || "",
+      service: (s.service && s.service.running) ? t.running : ((s.service && s.service.installed) ? t.notRunning : t.notInstalled),
+      magpie: s.magpie_ok ? (s.magpie_version || "") : "—",
+      turnCount: turnCount,
+      coverage: cov.total ? Math.round((100 * cov.asked) / cov.total) + "%" : "—",
+      failures: (s.window && s.window.classify && s.window.classify.failures) || 0,
+      topReason: topReason,
+      age: age,
+      ageText: age === null ? "" : (age < 60 ? age + "s" : (age < 3600 ? Math.round(age / 60) + "m" : Math.round(age / 3600) + "h")),
+      live: live.map((c) => ({
+        session: (c.session || "").slice(0, 8),
+        harness: c.harness || t.unknown,
+        agent: c.agent || "",
+        tier: c.tier || "",
+        group: c.group || "",
+        reason: c.reason || "",
+        conf: c.tier_confidence,
+        turns: c.turns || 0,
+        tools: c.agent === "gateway" ? (c.tools || 0) + "/" + (c.tool_failures || 0) : null,
+        last: c.last_at || "",
+      })),
+      decisions: decisions.slice(0, 12).map((ev) => ({
+        time: ev.t || "",
+        clock: ev.t ? ev.t.slice(11, 19) : "",
+        harness: ev.harness || t.unknown,
+        agent: ev.agent || "",
+        tier: ev.tier || "",
+        advised: ev.classified_tier || "",
+        differs: !!(ev.classified_tier && ev.classified_tier !== ev.tier),
+        reason: ev.reason || "",
+        source: ev.classifier || ev.source || "",
+        conf: ev.tier_confidence,
+        ms: ev.latency_ms || 0,
+      })),
+      emptyLive: live.length === 0,
+      noDecisions: decisions.length === 0,
+    };
+  }
+
   globalThis.MbridgeView = {
     TEXT,
     PERIODS,
@@ -169,5 +288,6 @@
     since,
     periodLabel,
     sortLabel,
+    mbridgeView,
   };
 })();

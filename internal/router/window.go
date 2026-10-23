@@ -75,13 +75,112 @@ type WindowView struct {
 	Agents    map[string]int `json:"agents"`
 	Hints     int            `json:"hints"`
 	// both arms, and the three calibration tables
-	Report    Report            `json:"report"`
-	Calibrate []ScoreCalibration `json:"calibrate"`
+	Report    ReportView        `json:"report"`
+	Calibrate []CalibrationView `json:"calibrate"`
 	// Turns are the last turns of the window, for the classifier's panel
 	Turns []Event `json:"turns"`
 	// PRStates says the merged-PR rate came from feedback alone: in
 	// process mbridge cannot ask gh, `mbridge router report` can.
 	PRStates string `json:"pr_states"`
+}
+
+// ArmView is one arm's numbers, in the shape a page reads them. The
+// report itself has no JSON tags (mbridge router report --json prints
+// Go's field names, and that is its contract), so the window carries
+// its own view of it.
+type ArmView struct {
+	Sessions             int                `json:"sessions"`
+	CostMedian           float64            `json:"cost_median"`
+	CostMean             float64            `json:"cost_mean"`
+	CostP90              float64            `json:"cost_p90"`
+	TierDistribution     map[string]float64 `json:"tier_distribution"`
+	ShadowDistribution   map[string]float64 `json:"shadow_distribution"`
+	PRSessions           int                `json:"pr_sessions"`
+	MergedSessions       int                `json:"merged_sessions"`
+	ManualSwitchSessions int                `json:"manual_switch_sessions"`
+	HintConsumed         int                `json:"hint_consumed"`
+	TotalCost            float64            `json:"total_cost"`
+	UnpricedRequests     int                `json:"unpriced_requests"`
+	CacheWriteCost       float64            `json:"cache_write_cost"`
+}
+
+// ReportView is the two arms and the comparison between them.
+type ReportView struct {
+	Router      ArmView `json:"router"`
+	Control     ArmView `json:"control"`
+	MergedZ     float64 `json:"merged_z"`
+	SampleShort bool    `json:"sample_short"`
+}
+
+// BandView is one segment of a calibration table.
+type BandView struct {
+	Lo        float64 `json:"lo"`
+	Hi        float64 `json:"hi"`
+	N         int     `json:"n"`
+	Share     float64 `json:"share"`
+	UnderRate float64 `json:"under_rate"`
+}
+
+// CalibrationView is one score's table.
+type CalibrationView struct {
+	Score           string     `json:"score"`
+	HigherEscalates bool       `json:"higher_escalates"`
+	Bands           []BandView `json:"bands"`
+	Current         float64    `json:"current"`
+	Suggested       *float64   `json:"suggested,omitempty"`
+	SampleShort     bool       `json:"sample_short"`
+	EscalateRate    float64    `json:"escalate_rate"`
+	UnderRateKept   float64    `json:"under_rate_kept"`
+}
+
+// reportView is the report in the shape the pages read.
+func reportView(r Report) ReportView {
+	return ReportView{
+		Router:      armView(r.Router),
+		Control:     armView(r.Control),
+		MergedZ:     r.MergedZ,
+		SampleShort: r.SampleShort,
+	}
+}
+
+// armView is one arm in the shape the pages read.
+func armView(a ArmReport) ArmView {
+	return ArmView{
+		Sessions:             a.Sessions,
+		CostMedian:           a.CostMedian,
+		CostMean:             a.CostMean,
+		CostP90:              a.CostP90,
+		TierDistribution:     a.TierDistribution,
+		ShadowDistribution:   a.ShadowDistribution,
+		PRSessions:           a.PRSessions,
+		MergedSessions:       a.MergedSessions,
+		ManualSwitchSessions: a.ManualSwitchSessions,
+		HintConsumed:         a.HintConsumed,
+		TotalCost:            a.TotalCost,
+		UnpricedRequests:     a.UnpricedRequests,
+		CacheWriteCost:       a.CacheWriteCost,
+	}
+}
+
+// calibrationViews is the calibration tables in the shape the pages read.
+func calibrationViews(tables []ScoreCalibration) []CalibrationView {
+	out := make([]CalibrationView, 0, len(tables))
+	for _, c := range tables {
+		v := CalibrationView{
+			Score:           c.Score,
+			HigherEscalates: c.HigherEscalates,
+			Current:         c.Current,
+			Suggested:       c.Suggested,
+			SampleShort:     c.SampleShort,
+			EscalateRate:    c.EscalateRate,
+			UnderRateKept:   c.UnderRateKept,
+		}
+		for _, b := range c.Bands {
+			v.Bands = append(v.Bands, BandView{Lo: b.Lo, Hi: b.Hi, N: b.N, Share: b.Share, UnderRate: b.UnderRate})
+		}
+		out = append(out, v)
+	}
+	return out
 }
 
 // PRStatesFeedbackOnly is the mark the page shows next to the merge
@@ -156,10 +255,10 @@ func ReadEvents(path string) ([]Event, error) {
 // ledger, on a timer (SP14 §3.2). Reading and aggregating on every page
 // load would re-scan the whole log and re-run magpie's CLI each time.
 type Aggregator struct {
-	path   string
-	every  time.Duration
-	usage  func(context.Context, string) ([]magpie.UsageRow, error)
-	now    func() time.Time
+	path  string
+	every time.Duration
+	usage func(context.Context, string) ([]magpie.UsageRow, error)
+	now   func() time.Time
 	// Config is the configuration the windows are computed against: the
 	// calibration tables are read against the thresholds in force.
 	Config *Config
@@ -328,8 +427,8 @@ func AggregateWindow(cfg Config, events []Event, rows []magpie.UsageRow, kind st
 	}
 	// PRStates is nil: in process mbridge cannot ask gh, so the merged-PR
 	// rate falls back to the feedback sessions and says so
-	v.Report = Aggregate(ReportInput{Records: records, Events: decides, Now: now, Since: WindowLength(kind)})
-	v.Calibrate = Calibrate(decides, cfg, CalibrateFilter{Since: since})
+	v.Report = reportView(Aggregate(ReportInput{Records: records, Events: decides, Now: now, Since: WindowLength(kind)}))
+	v.Calibrate = calibrationViews(Calibrate(decides, cfg, CalibrateFilter{Since: since}))
 	return v
 }
 

@@ -47,6 +47,32 @@
     <p class="muted empty" id="empty" hidden></p>
   </section>
 
+  <section class="mbridge">
+    <div class="mbridge-head">
+      <h2 data-t="mbridge">mbridge</h2>
+      <span id="mbridge-age" class="muted"></span>
+    </div>
+    <div id="mbridge-stats" class="stats"></div>
+    <h3 data-t="mbridgeLive">sessions running now</h3>
+    <div id="mbridge-live" class="cards"></div>
+    <h3 data-t="mbridgeDecisions">recent decisions</h3>
+    <table class="table mbridge-table">
+      <thead>
+        <tr>
+          <th></th><th data-t="harness">harness</th><th data-t="agent">agent</th>
+          <th data-t="tier">tier</th><th data-t="advised">advised</th>
+          <th data-t="reason">reason</th><th class="num" data-t="conf">confidence</th>
+        </tr>
+      </thead>
+      <tbody id="mbridge-decisions"></tbody>
+    </table>
+    <p id="mbridge-empty" class="muted"></p>
+    <div class="mbridge-actions">
+      <button type="button" id="mbridge-ask" class="btn"></button>
+      <button type="button" id="mbridge-restart" class="btn"></button>
+    </div>
+  </section>
+
   <section class="notes">
     <p class="note" data-t="disclaimer"></p>
     <p class="note">
