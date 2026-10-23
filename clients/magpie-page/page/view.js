@@ -6,6 +6,12 @@
 
 const REFRESH_MS = 5000;
 
+// PAGE_VERSION is this page's own build: the sidebar keeps the iframe it
+// built the first time, so a stale tab shows an old version here (SP14 §2:
+// the plugin page is a one-way ticket — toggle the plugin off and on to
+// get a new frame).
+const PAGE_VERSION = "0.5.1";
+
 const TEXT = {
   en: {
     title: "mbridge",
@@ -458,7 +464,8 @@ function calibrationTable(c) {
   // the headline: mbridge's own numbers, not the process table
   root.appendChild(el("header", { class: "head" }, [
     el("h1", {}, [el("span", { text: "mbridge" }),
-      el("span", { class: "version", text: " " + (data.version || "") })]),
+      el("span", { class: "version", text: " " + (data.version || "") }),
+      el("span", { class: "pagever", text: "page " + PAGE_VERSION })]),
     el("p", { class: "sub", text: t.subtitle }),
   ]));
 
@@ -668,6 +675,7 @@ function calibrationTable(c) {
 }
 
   globalThis.MbridgeView = {
+    PAGE_VERSION,
     TEXT,
     REASONS,
     TIERS,

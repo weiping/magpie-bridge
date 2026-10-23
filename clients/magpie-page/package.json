@@ -1,6 +1,6 @@
 {
   "name": "@weiping/mbridge-page",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "mbridge's usage at a glance inside magpie: what magpie's ledger recorded, and where mbridge's own status page is.",
   "license": "MIT",
   "keywords": [

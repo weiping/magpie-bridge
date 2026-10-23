@@ -407,6 +407,10 @@ magpie plugin add ./clients/magpie-page      # 或者从源码装：改完重开
 magpie plugin --json                         # 确认装上了（plugin list 这个子命令不存在）
 ```
 
+**看到旧页面怎么办**：magpie 的侧边栏只建一次插件的 iframe，切回来不会重建（spec §2
+的「单程票」）。升级后在 Plugins 里把 `mbridge-page` **关掉再打开**（或退出重开 magpie）
+才会拿到新页面。页面右上角有 `page <版本>` 标记，一眼能看出是不是旧的。
+
 页面里有两半：
 - **magpie 记下的用量**：周期切换（今天 / 7 天 / 30 天）、四块数、模型表。
 - **mbridge 自己的状态**：过去 7 天的轮数、分类器覆盖率与失败数、此刻在走 mbridge 的

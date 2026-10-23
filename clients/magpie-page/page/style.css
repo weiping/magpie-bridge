@@ -111,3 +111,5 @@
   background: var(--bg); color: var(--fg); cursor: pointer; font: inherit;
 }
 .guide-refresh:hover { background: var(--chip); }
+
+.pagever { color: var(--dim); font-size: .75em; font-weight: 400; margin-left: .5rem; }
