@@ -10,7 +10,7 @@ const REFRESH_MS = 5000;
 // built the first time, so a stale tab shows an old version here (SP14 §2:
 // the plugin page is a one-way ticket — toggle the plugin off and on to
 // get a new frame).
-const PAGE_VERSION = "0.1.2";
+const PAGE_VERSION = "0.1.3";
 
 const TEXT = {
   en: {
@@ -491,13 +491,6 @@ function calibrationTable(c) {
     el("p", { class: "sub", text: t.subtitle }),
   ]));
 
-  const tabs = el("div", { class: "tabs" });
-  for (const kind of ["1d", "7d", "30d"]) {
-    tabs.appendChild(el("button", { type: "button", "aria-pressed": String(w.kind === kind),
-      text: kind, onclick: () => { current.window = kind; load(); } }));
-  }
-  tabs.appendChild(el("span", { class: "muted", text: t.window }));
-
   root.appendChild(el("div", { class: "pulse" }, [
     el("div", { class: "stat" }, [el("b", { text: String(turnsCount) }), el("span", { text: " " + t.turns })]),
     el("div", { class: "stat" }, [el("b", { text: pct(cov.asked, cov.total) }),
@@ -507,7 +500,6 @@ function calibrationTable(c) {
     el("div", { class: "stat" }, [el("b", { text: money(cost) }), el("span", { text: " " + t.cost })]),
     topReason ? el("div", { class: "stat" }, [el("b", { text: topReason }),
       el("span", { text: " " + t.topReason })]) : null,
-    el("div", { class: "tabs" }, tabs),
   ]));
 
   if (data.listen_pending) {
