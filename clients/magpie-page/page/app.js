@@ -196,6 +196,9 @@
   async function readOptions() {
     try {
       const o = (await magpie.options.get()) || {};
+      // what we write back must be what we just read: writing a stale
+      // copy would put an old snapshot back
+      opts = o;
       if (V.PERIODS.includes(o.period)) state.period = o.period;
       if (V.SORTS.includes(o.sort)) state.sort = o.sort;
       state.mbridge = o.mbridge || null;
@@ -204,14 +207,19 @@
     }
   }
 
-  async function load() {
-    await readOptions();
+  // loadUsage reads what magpie recorded; it moves slowly.
+  async function loadUsage() {
     try {
       state.summary = await magpie.read("usage:summary", { period: state.period });
       state.error = null;
     } catch (e) {
       state.error = (e && e.message) || String(e);
     }
+  }
+
+  async function load() {
+    await readOptions();
+    await loadUsage();
     paint();
   }
 
@@ -296,5 +304,11 @@
   });
   words();
   await load();
-  setInterval(load, 60000);
+  // magpie's ledger moves slowly; mbridge's snapshot moves every fifteen
+  // seconds, and reading the options is free
+  setInterval(loadUsage, 60000);
+  setInterval(async () => {
+    await readOptions();
+    paintMbridge();
+  }, 5000);
 })();
