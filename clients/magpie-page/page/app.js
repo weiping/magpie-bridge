@@ -1,7 +1,7 @@
-// app.js reads magpie's ledger and draws it. It never reaches mbridge:
-// the sandbox a magpie page runs in has no network at all (connect-src
-// 'none'), and the only thing this page needs is what magpie already
-// recorded (SP14 §2).
+// app.js reads what mbridge published into the plugin's options, and
+// draws it. It never reaches mbridge: the sandbox a magpie page runs in
+// has no network at all (connect-src 'none'), so mbridge pushes its
+// state into the options and the page reads them in-process (SP14 §7).
 //
 // A classic script, like the community's usage page: it reads the view
 // from globalThis.
@@ -26,25 +26,21 @@
   const theme = await magpie.ready;
   let lang = theme.lang;
 
-  // the period and the sort live in this plugin's own options, so the
-  // page opens where it was left
+  // the page's own keys in the options (kept so mbridge's key survives
+  // a write)
   let opts = {};
   try {
     opts = (await magpie.options.get()) || {};
   } catch {
-    // no options yet: the defaults in package.json stand
+    // no options yet: mbridge publishes them
   }
   const state = {
-    period: V.PERIODS.includes(opts.period) ? opts.period : "7d",
-    sort: V.SORTS.includes(opts.sort) ? opts.sort : "tokens",
-    summary: null,
-    error: null,
-    // what mbridge published into the options (SP14 §7)
     mbridge: null,
-    // the sequence number of the last command the page sent
     cmdSeq: 0,
   };
 
+  // the address of mbridge's own page: selectable text, not a link (the
+  // sandbox may navigate itself, but that is a one-way ticket, SP14 §2)
   function words() {
     const t = V.text(lang);
     document.querySelectorAll("[data-t]").forEach((e) => {
@@ -53,16 +49,23 @@
     $("status").textContent = t.status;
     $("restart").textContent = t.restart;
     $("cmd").textContent = "mbridge service restart";
+    $("addr").textContent = V.STATUS_URL;
+    $("mbridge-ask").textContent = t.mbridgeAsk;
+    $("mbridge-restart").textContent = t.mbridgeRestart;
   }
 
-  function pick(group, attr, value) {
-    $(group).querySelectorAll("button").forEach((b) => {
-      b.setAttribute("aria-selected", String(b.dataset[attr] === value));
-    });
+  // readOptions reads the options: what mbridge published. What we write
+  // back must be what we just read, so mbridge's snapshot is not put back
+  // stale.
+  async function readOptions() {
+    try {
+      opts = (await magpie.options.get()) || {};
+      state.mbridge = opts.mbridge || null;
+    } catch {
+      // the options are not readable: keep what we have
+    }
   }
 
-  // paintMbridge draws what mbridge published: its numbers, the sessions
-  // running now, and the decisions it made.
   function paintMbridge() {
     const t = V.text(lang);
     const v = V.mbridgeView(state.mbridge, lang);
@@ -134,93 +137,7 @@
   }
 
   function paint() {
-    pick("periods", "period", state.period);
-    pick("sorts", "sort", state.sort);
-    // mbridge's part does not depend on magpie's usage
     paintMbridge();
-    const s = state.summary;
-    if (!s) return;
-    $("since").textContent = V.since(s, lang);
-
-    $("tiles").replaceChildren(
-      ...V.tiles(s, lang).map((tile) => {
-        const cell = document.createElement("div");
-        cell.className = "tile";
-        for (const [cls, value] of [["k", tile.label], ["v", tile.value], ["s", tile.sub]]) {
-          if (value === undefined) continue;
-          const e = document.createElement("div");
-          e.className = cls;
-          e.textContent = value;
-          cell.append(e);
-        }
-        return cell;
-      })
-    );
-
-    const rows = V.rows(s, state.sort, lang);
-    $("rows").replaceChildren(
-      ...rows.map((r) => {
-        const tr = document.createElement("tr");
-        const name = document.createElement("td");
-        name.className = "model";
-        name.textContent = r.model;
-        const bar = document.createElement("span");
-        bar.className = "bar";
-        const fill = document.createElement("i");
-        fill.style.width = Math.max(2, Math.round(r.shareValue * 100)) + "%";
-        bar.append(fill);
-        name.append(bar);
-        const calls = document.createElement("td");
-        calls.className = "num";
-        calls.textContent = r.calls;
-        const tokens = document.createElement("td");
-        tokens.className = "num";
-        tokens.textContent = r.tokens;
-        const cost = document.createElement("td");
-        cost.className = "num";
-        cost.textContent = r.cost;
-        tr.append(name, calls, tokens, cost);
-        return tr;
-      })
-    );
-    $("empty").hidden = rows.length > 0;
-    $("empty").textContent = V.text(lang).empty;
-    $("error").hidden = !state.error;
-    if (state.error) {
-      $("error").textContent = V.text(lang).failed + ": " + state.error + " · " + V.text(lang).retry;
-    }
-  }
-
-  // readOptions reads the plugin's options: the page's period and sort,
-  // and what mbridge published there.
-  async function readOptions() {
-    try {
-      const o = (await magpie.options.get()) || {};
-      // what we write back must be what we just read: writing a stale
-      // copy would put an old snapshot back
-      opts = o;
-      if (V.PERIODS.includes(o.period)) state.period = o.period;
-      if (V.SORTS.includes(o.sort)) state.sort = o.sort;
-      state.mbridge = o.mbridge || null;
-    } catch {
-      // the options are not readable: keep what we have
-    }
-  }
-
-  // loadUsage reads what magpie recorded; it moves slowly.
-  async function loadUsage() {
-    try {
-      state.summary = await magpie.read("usage:summary", { period: state.period });
-      state.error = null;
-    } catch (e) {
-      state.error = (e && e.message) || String(e);
-    }
-  }
-
-  async function load() {
-    await readOptions();
-    await loadUsage();
-    paint();
   }
 
   // command asks mbridge to do something. The sequence number makes it
@@ -233,54 +150,13 @@
       const o = (await magpie.options.get()) || {};
       o.cmd = cmd;
       await magpie.options.set(o);
-    } catch (e) {
+    } catch {
       // mbridge will not hear it; the page says so
       return false;
     }
     return true;
   }
 
-  // magpie takes one options write a second: a quick second click is
-  // saved with the next one
-  let saving = null;
-  function save() {
-    if (saving) return;
-    saving = setTimeout(async () => {
-      saving = null;
-      try {
-        // the whole object is replaced: mbridge's key goes with it, and
-        // mbridge puts its snapshot back on its next round
-        opts = (await magpie.options.set({ ...opts, period: state.period, sort: state.sort })) || opts;
-      } catch {
-        // not remembering is not worth an error on the page
-      }
-    }, 1100);
-  }
-
-  $("periods").addEventListener("click", (e) => {
-    const b = e.target.closest("button[data-period]");
-    if (!b || b.dataset.period === state.period) return;
-    state.period = b.dataset.period;
-    save();
-    load();
-  });
-
-  $("sorts").addEventListener("click", (e) => {
-    const b = e.target.closest("button[data-sort]");
-    if (!b || b.dataset.sort === state.sort) return;
-    state.sort = b.dataset.sort;
-    save();
-    paint();
-  });
-
-  // the period and sort buttons carry their own words
-  for (const b of $("periods").querySelectorAll("button[data-period]")) {
-    b.textContent = V.periodLabel(b.dataset.period, lang);
-  }
-  for (const b of $("sorts").querySelectorAll("button[data-sort]")) {
-    b.textContent = V.sortLabel(b.dataset.sort, lang);
-  }
-  $("addr").textContent = V.STATUS_URL;
   $("mbridge-ask").textContent = V.text(lang).mbridgeAsk;
   $("mbridge-restart").textContent = V.text(lang).mbridgeRestart;
   $("mbridge-ask").addEventListener("click", async () => {
@@ -302,13 +178,14 @@
     if (!ok) { b.disabled = false; b.textContent = t.mbridgeRestart; return; }
     b.textContent = t.mbridgeRestartAsked;
   });
+
   words();
-  await load();
-  // magpie's ledger moves slowly; mbridge's snapshot moves every fifteen
-  // seconds, and reading the options is free
-  setInterval(loadUsage, 60000);
+  await readOptions();
+  paint();
+  // mbridge's snapshot moves every fifteen seconds, and reading the
+  // options is free
   setInterval(async () => {
     await readOptions();
-    paintMbridge();
+    paint();
   }, 5000);
 })();

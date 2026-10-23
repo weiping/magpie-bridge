@@ -1,6 +1,6 @@
 {
   "name": "@weiping/mbridge-page",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "mbridge's usage at a glance inside magpie: what magpie's ledger recorded, and where mbridge's own status page is.",
   "license": "MIT",
   "keywords": [
@@ -33,9 +33,7 @@
       "file": "page/index.html",
       "icon": "page/icon.svg"
     },
-    "permissions": [
-      "usage:summary"
-    ],
+    "permissions": [],
     "options": {
       "period": "7d",
       "sort": "tokens"
