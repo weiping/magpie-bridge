@@ -68,10 +68,19 @@ func SetEventsPath(p string) {
 
 // Append writes one event as a JSON line to the event log
 // (~/.config/magpie-bridge/router.jsonl, overridable).
-func Append(ev Event) error {
+// stampEvent gives an event its time, if it has none. Append takes the
+// event by value, so the copy it writes has the time and the caller's
+// copy does not: the in-memory ring (which the status page shows) would
+// carry events without a time, and the page sorts by it.
+func stampEvent(ev Event) Event {
 	if ev.Time == "" {
 		ev.Time = eventsClock()
 	}
+	return ev
+}
+
+func Append(ev Event) error {
+	ev = stampEvent(ev)
 	b, err := json.Marshal(ev)
 	if err != nil {
 		return err

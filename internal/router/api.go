@@ -361,6 +361,9 @@ func criteriaOf(cfg Config) map[Tier]string {
 
 // log records an event and keeps the last 20 decisions for status.
 func (d *Deps) log(ev Event) {
+	// the time belongs to the event, not to the copy Append writes: the
+	// ring keeps this one and the status page sorts by it
+	ev = stampEvent(ev)
 	if d.Log != nil {
 		_ = d.Log(ev)
 	}

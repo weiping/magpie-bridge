@@ -229,3 +229,27 @@ func TestClassifyMsIsZeroOnOldEvents(t *testing.T) {
 		t.Fatalf("latency %d", ev.LatencyMs)
 	}
 }
+
+// TestTheDecisionInTheRingHasItsTime: the ring is what the status page
+// shows as "recent decisions", and the page sorts by the time. Append
+// takes the event by value, so without a stamp the ring's events carry no
+// time at all — and the newest ones sort to the bottom.
+func TestTheDecisionInTheRingHasItsTime(t *testing.T) {
+	d, _, _ := testDeps(t, &Verdict{Tier: TierBalanced})
+	d.Decide(context.Background(), DecideInput{
+		Session: "s1", Key: "s1", Harness: "codex", Agent: "main", Prompt: "hello there",
+	})
+	if len(d.decisions) != 1 {
+		t.Fatalf("decisions %+v", d.decisions)
+	}
+	if d.decisions[0].Time == "" {
+		t.Fatal("the decision in the ring has no time")
+	}
+	at, err := time.Parse(time.RFC3339, d.decisions[0].Time)
+	if err != nil {
+		t.Fatalf("time %q: %v", d.decisions[0].Time, err)
+	}
+	if time.Since(at) > time.Minute {
+		t.Fatalf("the decision's time is %v old", time.Since(at))
+	}
+}
