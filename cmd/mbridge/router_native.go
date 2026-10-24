@@ -167,8 +167,15 @@ func routerInitNative(ctx context.Context, mc *magpie.Client, have map[string]bo
 	if !ok {
 		fallback = target[router.TierBalanced]
 	}
+	// SP15: the classifier may name a group (mb-classifier). magpie's rule
+	// classifier= takes group/<id>; a bare name is refused ("knows no
+	// model"). Prefix bare group names before they go into the rule.
+	classifierRef := cfg.Classifier
+	if !strings.Contains(classifierRef, "/") {
+		classifierRef = gp + classifierRef
+	}
 	rules := [][]string{
-		{"use=" + target[router.TierFast], "classifier=" + cfg.Classifier, "intent=" + cfg.Tiers[router.TierFast].Criteria},
+		{"use=" + target[router.TierFast], "classifier=" + classifierRef, "intent=" + cfg.Tiers[router.TierFast].Criteria},
 		{"use=" + target[router.TierBalanced], "intent=" + cfg.Tiers[router.TierBalanced].Criteria},
 		{"use=" + target[router.TierPerformance], "intent=" + cfg.Tiers[router.TierPerformance].Criteria},
 		{"use=" + fallback, "tokens=1"}, // anything the classifier did not place: default_tier

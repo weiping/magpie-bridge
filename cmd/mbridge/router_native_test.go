@@ -355,3 +355,16 @@ func TestNativeBalancedMembers(t *testing.T) {
 		})
 	}
 }
+
+// A classifier that names a group (SP15: mb-classifier) goes into the
+// native rule as group/<id>, not the bare name magpie would refuse
+// ("knows no model").
+func TestRouterInitNativeUsesGroupRefForClassifier(t *testing.T) {
+	f := nativeHome(t)
+	editRouterJSON(t, func(m map[string]any) { m["classifier"] = "mb-classifier" })
+	initNative(t)
+	rules := rulesOf(f, "mb-native")
+	if len(rules) == 0 || !slices.Contains(rules[0], "classifier=group/mb-classifier") {
+		t.Fatalf("rules: %v", rules)
+	}
+}
