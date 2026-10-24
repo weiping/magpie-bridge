@@ -95,17 +95,19 @@ func (c *classifier) reviewJev(ctx context.Context, q ReviewQuestion) (*ReviewVe
 	if err != nil {
 		return nil, err
 	}
-	var parsed struct {
-		Answers struct {
-			Unresolved struct {
-				Noul float64 `json:"noul"`
-			} `json:"unresolved"`
-		} `json:"answers"`
-	}
-	if err := json.Unmarshal([]byte(reply), &parsed); err != nil {
+	ans, err := jevAnswers([]byte(reply))
+	if err != nil {
 		return nil, fmt.Errorf("router: jev review reply: %v", err)
 	}
-	return &ReviewVerdict{Unresolved: clamp01(parsed.Answers.Unresolved.Noul), Confidence: 1}, nil
+	var parsed struct {
+		Unresolved struct {
+			Noul float64 `json:"noul"`
+		} `json:"unresolved"`
+	}
+	if err := json.Unmarshal(ans, &parsed); err != nil {
+		return nil, fmt.Errorf("router: jev review reply: %v", err)
+	}
+	return &ReviewVerdict{Unresolved: clamp01(parsed.Unresolved.Noul), Confidence: 1}, nil
 }
 
 func (c *classifier) reviewPlain(ctx context.Context, q ReviewQuestion) (*ReviewVerdict, error) {

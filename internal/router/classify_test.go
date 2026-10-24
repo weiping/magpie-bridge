@@ -135,6 +135,25 @@ func TestJevClassifyRefusesAReplyWithoutAnswers(t *testing.T) {
 	}
 }
 
+// TestJevReviewThroughARelaysEnvelope: the end-of-turn review is asked of
+// the same classifier, so its answer arrives in the same envelope — read at
+// the top level alone it was an unresolved of 0, a review that never
+// complains, rather than an error.
+func TestJevReviewThroughARelaysEnvelope(t *testing.T) {
+	f := askFunc(func(context.Context, string, string) (string, error) {
+		return `{"state":"Completed","result":{"model":"jev-1.13.0","answers":{"unresolved":{"type":"noul","noul":0.72}}}}`, nil
+	})
+	v, err := NewClassifier(testConfig("mb-classifier"), f.ask).Review(context.Background(), ReviewQuestion{
+		Request: "fix the test", Answer: "I could not", Tier: TierBalanced,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Unresolved != 0.72 {
+		t.Fatalf("unresolved %v, want 0.72", v.Unresolved)
+	}
+}
+
 func TestJevClassifyFirstTurn(t *testing.T) {
 	var gotBody string
 	f := askFunc(func(_ context.Context, _, body string) (string, error) {
