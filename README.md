@@ -241,6 +241,8 @@ magpie group mb-classifier                        # 看现在有哪些成员
 magpie group set mb-classifier models=typesafe/jev-latest routing=order
 ```
 
+成员后面标 `not served now` 是说 magpie 现在服务不了它——provider 没配好，或者那个模型列表拉不动（`magpie provider models <provider>` 会直接报网络错）。这时组等于没有可用成员（`magpie group mb-classifier` 显示 `no member ready`），分类每轮都失败，轮子落回默认档。
+
 `router.json` 里写 `mb-classifier` 或 `group/mb-classifier` 都认；magpie 的原生规则（`magpie group rule add … classifier=`）只认 `group/mb-classifier` 这种带前缀的写法。
 
 ### 轮末复核与置信度校准

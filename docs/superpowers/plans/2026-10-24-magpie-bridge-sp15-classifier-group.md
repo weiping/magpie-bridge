@@ -251,6 +251,6 @@ git commit -m "feat: init makes mb-classifier group and defaults classifier to i
 
 ## 完成后
 
-- ⛔ **没做**（2026-10-24）：跑一遍真实 init 验证（magpie 网关起来时）：`mbridge router init --preset cn --groups-only`，确认 `magpie group mb-classifier` 显示成员 `typesafe/jev-latest`，`router.json` 的 `classifier` 是 `mb-classifier`。它会动线上 magpie 的组和 `router.json`，没擅自跑。已记进 spec §8.5。
+- ✅ **2026-10-24（只验了一半）**：跑一遍真实 init 验证（magpie 网关起来时）：`mbridge router init --preset cn --groups-only`，确认 `magpie group mb-classifier` 显示成员 `typesafe/jev-latest`，`router.json` 的 `classifier` 是 `mb-classifier`。**做过了**：`router.json` 的 `classifier` 确实是 `mb-classifier`（mtime `2026-10-24 13:35:24`），magpie 里 `mb-classifier` 组在、`routing order`、4 个成员。**但此刻组里没有可服务的成员**（四个成员全是 `not served now, skipped`，组 `no member ready`），分类这条路还没验通。证据与原因见 spec §8.5。
 - ✅ **2026-10-24**：回填 spec 的「实现决定」：见 spec §8（typesafe 回退的写法、`classifySource` 的取值、`ModelList` 的 deciders 头、native init 的跨包破例都在那里）。
 - ✅ **2026-10-24**：在 README 补一句：`mb-classifier` 组里加成员必须都是 decision model（Jev/Clef/Nimble/Tev…），加进普通 chat model 会让 `/v1/systemone` 返回 400。见 README「换分类器组里的模型」。

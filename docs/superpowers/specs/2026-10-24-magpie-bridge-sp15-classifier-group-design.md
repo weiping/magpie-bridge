@@ -142,6 +142,21 @@ Go（`go vet ./... && go test -race ./...`）：
    早退提示掉，所以 `group/local` 不会被写进 magpie 规则
    （测试 `TestRouterInitNativeSkipsWhenClassifierIsLocal`）。改代码时别把那个早退挪到后面。
 
-5. **没验的**：真机跑一遍 `mbridge router init --preset cn --groups-only`
-   （看 `magpie group mb-classifier` 的成员、`router.json` 的 `classifier`）**还没做**——
-   它会动线上 magpie 的组和 `router.json`。做完之前，别把这条功能当成端到端验过。
+5. **真机 init 验过了（2026-10-24）**，但只验了一半：
+
+   - `mbridge router init --preset cn --groups-only` 跑过。`~/.config/magpie-bridge/router.json`
+     的 `classifier` 是 `mb-classifier`（文件 mtime `2026-10-24 13:35:24`，比最后一个提交
+     `ba479ce9` 晚两分钟）；magpie 里 `mb-classifier` 组在，`routing order`，4 个成员
+     （`typesafe/jev-preview`、`typesafe/jev-latest`、`cloudflare-jev/@cf/cloudflare/clef`、
+     `cloudflare-jev/@cf/cloudflare/clef-flash`——全是 decision model，符合 §3 的硬约束）。
+   - **但此刻组里没有可服务的成员**：magpie 把四个成员全标成 `not served now, skipped`，
+     组本身是 `no member ready`；`mbridge router status` 最近三次决策是 `R8-default` +
+     `R7-carry` ×2，也就是**分类这条路当前是断的**，轮子落回默认档。
+   - 查到的原因：`magpie provider models typesafe` 直接报 `TLS handshake timeout`
+     （api.typesafe.ai 拉不动，缓存的列表是 25 小时前的），两个 typesafe 成员因此不被服务；
+     两个 `cloudflare-jev/@cf/cloudflare/clef*` 成员与 cloudflare-jev provider 暴露的 id
+     完全一致，magpie 仍报不服务——**这一条没查清**（它的列表标的是
+     `2 exposed of 3 from models.dev`，像是来自目录而不是实时探测）。
+
+   结论：**「init 建组 + 默认写 classifier」这一步有真机证据了**；**「用这个组真的分类出档位」
+   还没有**，别把它当成端到端通了。
