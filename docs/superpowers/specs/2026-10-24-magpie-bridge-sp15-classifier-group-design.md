@@ -92,6 +92,7 @@ func isClassifierGroup(c string) bool {
 - 不改 plain 路径（非 typesafe 的 `provider/model`）。
 - 不改 review 的分类器调用（`classify.go` 的 `Review` 走同一套，`jev` 判定改了自动跟着走）。
 - 不改 `/v1/bridge/*` 接口、三个客户端插件、`internal/proxy`。
+- **例外（实现时补）**：`routerInit --native`（SP12）的 `classifier=` 规则原来照抄 `cfg.Classifier`；SP15 把默认值改成组名后，裸组名会被 magpie 拒绝（magpie 对非 `group/` 前缀的 classifier 走 `Resolve`，报「knows no model」）。所以 native init 构造 rule 时对裸组名补 `group/` 前缀——这是 SP15 引入的回归修复，不是扩展 native。
 
 ## 6. 测试
 
