@@ -215,7 +215,13 @@ Go（`go vet ./... && go test -race ./...`）：
    原始 body）、`TestJevClassifyRefusesAReplyWithoutAnswers`。
 
    上游可一并修：`DecideAnswer` 的 Cloudflare 分支改成循环拆信封（`while result is an
-   object`），这样任何客户端都不用知道中继套了几层。
+   object and no answers yet`），这样任何客户端都不用知道中继套了几层。
+   已写好并未推送：`/tmp/magpie-work` 分支 `fix/cloudflare-jev-answer-envelope`
+   （基于 yetone/magpie `a6399dd`），测试 `TestCloudflareAnswerPeelsTheEnvelopes`
+   在旧代码上红、新代码上绿，`go test ./internal/provider/ ./internal/gateway/` 全绿。
+   推上游要先 fork；当前 weiping 账号下只有 mbridge 自己的仓库是 yetone/magpie 的 fork
+   （`weiping/<repo>`，parent = yetone/magpie），往它推 magpie 分支会污染 mbridge 仓库，
+   所以先征求用户意见再发 PR。
 
    还有一处天花板：8s 的 `classify_timeout_ms` 一到，mbridge 取消整轮，magpie 就**没法**
    轮到下一个成员（日志里那次的错是 Cloudflare 的 `context canceled`）。想让它真的
