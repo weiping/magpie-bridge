@@ -13,12 +13,12 @@
 ## Global Constraints
 
 - **spec §2 是硬边界**：magpie 页面插件在 `iframe sandbox="allow-scripts"` 里，`connect-src 'none'`、`frame-src 'none'`，可读只有 `usage:summary` 和 `providers:list`。所以 **状态、报表、重启不进 magpie 页面**（spec §6）。magpie 页面里 mbridge 的状态只以「可选择的文字」给出地址，不做成链接（导航自己是允许的，但那是单程票，见 spec §2 末尾）。
-- **spec §7 已经把 options 那条路记成「不走」**：本 SP 不写 options 通道、不写发布器、不往用户的 `plugins.json` 里塞快照。Task 1 撤掉此前按旧方案写的那些代码。
+- **options 那条路：本计划初稿按 spec §7 当时的判断写「不走」，2026-10-23 改成「走」**。初稿的约束是：本 SP 不写 options 通道、不写发布器、不往用户的 `plugins.json` 里塞快照，Task 1 撤掉此前按旧方案写的那些代码。spec §7 后来实测推翻了「写一次 options 要退休插件宿主、5–18 s」这条理由，于是 Task 1 变成反任务，Task 9 的 magpie 页面也从「只读 `usage:summary`」长成了「带 mbridge 快照 + 重启按钮」。**以 spec 为准**（AGENTS.md），细节见本文件末尾「2026-10-23 之后的偏离」。
 - **`POST /v1/bridge/restart` 必须卡同源**（spec §3.3）：`Sec-Fetch-Site: same-origin` 或 `Origin` 的主机等于 mbridge 自己的 `listen` 主机才算数，其它一律 `403`，**先回 403 再说要不要重启**，不许靠「没这个头」放行。本地非浏览器进程不受影响（它们可以自己跑 `mbridge service restart`）。
 - **mbridge 与 magpie 的全部往来只能在 `internal/magpie`**（AGENTS.md 契约）。本 SP 只用现成的 `magpie.Client.Health` / `.Version` / `.Usage`。
 - **页面上的数不许比实际多**：
   - `Event.LatencyMs` 是 Decide 全程（**含分类**）；分类耗时靠新加的 `Event.ClassifyMs`；两者都拿不到时显示「—」，不许把 `LatencyMs` 说成「分类耗时」。
-  - `Classifier` 为空 = 这一轮**没问**分类器（R1 / R2 / 压缩提示 / `default`）。判「没问」只看 `Classifier` 空不空，不看那几个 `*float64` 是不是 nil。没问的轮次**不进**覆盖率、压缩率、不满意率的分母。
+  - `Classifier` 为空 = 这一轮**没问**分类器（R1 / R2 / 压缩提示 / `default`）。判「没问」只看 `Classifier` 空不空，不看那几个 `*float64` 是不是 nil。没问的轮次**不进**压缩率、不满意率的分母。**覆盖率是唯一的例外**：spec §E 说覆盖率就是「问了的轮次 ÷ 全部 decide 轮次」，低于 100% 是正常状态而不是故障（页面上的 `askHint` 就是讲这件事），所以它的分母是全部 decide 轮次。初稿这条把覆盖率也写了进去，与 spec §E 和本计划 Task 6 自己那个测试的注释相矛盾，按 spec 改。
   - `Event.Source`（`jev`/`llm`/`rule`/`default`/`hint`/`held`）与 `Event.Classifier`（模型 id）是两个字段：「哪个模型判的」用 `Classifier`。
   - 校准表的分母是「分类器的档被采纳了」的轮次（`calibrate.go:88`）；空段画「—」，不是 `0%`。
   - PR 合并率**不含 `gh`**（页面进程内拿不到），输出必须带 `pr_states: "feedback-only"` 标记。
@@ -26,7 +26,7 @@
 - **诚实边界写进页面**（spec §3.1 末）：harness 是客户端自报的（原样显示，别塞进「其它」）；会话列表只到 mbridge 记得住的为止（进程重启即空）；项目级 criteria 看不到；magpie 没价的模型计入 `UnpricedRequests`，不按 0 算进成本。
 - **档位归因不做**（spec §4.3）：magpie 记的是最终模型，`usage:summary` 里分不出档位。
 - TypeScript 优先；函数不超过 50 行；不留兼容代码；每个任务一个提交；测试命令 `go vet ./... && go test -race ./...`，页面测试 `bun test clients/magpie-page`。
-- **Task 1 是删除**，执行前要作者点头（AGENTS.md：涉及删除重构必须先问）。
+- **Task 1 是删除**，执行前要作者点头（AGENTS.md：涉及删除重构必须先问）。**Task 1 没有执行，也没有对应的提交**：写这份计划时它要删的四个文件就已经不在树里了（`50871171` 那个提交的树里只有 plan 和 spec），所以没有东西可删；后来 spec §7 翻转，那条路从「删」变成「留」，这个任务也就没有再做的意义。
 
 ## Review Focus
 
@@ -65,6 +65,15 @@ clients/magpie-page/     magpie 页面插件（只用 usage:summary）
 
 ### Task 1: 撤掉走不通的那条路
 
+> **【已被 spec §7 推翻，未执行，无提交】**（2026-10-24 回填）
+>
+> 这个任务的前提是「options 那条路走不通，仓库里留着走不通的代码，要撤掉」。两处都不成立了：
+>
+> 1. **要删的文件在写这份计划时就不在树里了。** `50871171`（plan + spec 那个提交）的树里只有 `docs/superpowers/` 下的两个文件，`internal/page/`、`internal/magpie/plugin_options.go`、`cmd/mbridge/page_cli.go` 都不存在——它们是更早的一次尝试（已被 `50871171` 之前的某个提交清掉）。所以 Task 1 是个空任务，没有产生 `refactor: drop the options channel the spec does not take` 这个提交。
+> 2. **spec §7 在 2026-10-23 反转了。** 实测推翻「写一次 options 要退休插件宿主、5–18 s」这条理由，§7 改成「走这条路」，并加了一节实测代价表（读/写 options 各 0.17 s，不退休宿主）。于是「撤掉 options 通道」变成了「把 options 通道做出来」——`cmd/mbridge/page_cli.go` 和 `internal/magpie/plugin_options.go` 今天都在树里，是 **2026-10-23 新写的**（`30f64b74`），不是 Task 1 该删的那批。
+>
+> 这两个文件的现状是 spec §7 的产物，**不是遗留代码**，谁也别按这个任务去删。详见本文件末尾「2026-10-23 之后的偏离」。
+
 **Files:**
 - Delete: `internal/page/page.go`、`internal/page/page_test.go`
 - Delete: `internal/magpie/plugin_options.go`、`internal/magpie/plugin_options_test.go`
@@ -98,6 +107,8 @@ Expected: PASS（`internal/router/api.go` 里没有 `RecentDecisions` 的引用�
 git add -A
 git commit -m "refactor: drop the options channel the spec does not take"
 ```
+
+> 上面四步**没有执行**，也没有这个提交。（2026-10-24 回填）
 
 ### Task 2: `mbridge service restart` 与 `mbridge status --json`
 
@@ -501,6 +512,8 @@ func TestTheCalibrationTableLeavesOutTheTurnsThatWereNotFollowed(t *testing.T) {
 Run: `go test ./internal/router/ -run 'TestTheWindow|TestTheReason|TestTheConfidence|TestTheCalibration'`
 Expected: FAIL —— `Aggregator` 未定义。
 
+> ⚠️ 这条命令有个坑：`go test -run` 对一个**不存在的**测试名照样 exit 0。所以「`Expected: FAIL`」在这个任务里其实是靠「编译不过」成立的，不是靠「测试失败」。**光看它绿了不能证明那五个测试名还在**——Step 5 里有对应的点名断言。（2026-10-24 回填）
+
 - [ ] **Step 3: 实现 `internal/router/window.go`**
 
 - `Aggregator` 每 `every`（serve 里给 30 秒）跑一次：读 `router.jsonl` 的**新增行**（记住上次读到哪一行，别整份重读），按 `Kind == "decide"` 的轮次算直方图（tiers / reasons / harnesses / arms）、覆盖率（`Classifier` 非空的轮次 ÷ decide 轮次）、分类失败（`classify_error` 非空的轮次 ÷ 问过分类器的轮次），再调 `router.Aggregate` 算两臂报告、`router.Calibrate` 算三张校准表。
@@ -519,6 +532,11 @@ Expected: FAIL —— `Aggregator` 未定义。
 
 Run: `go vet ./... && go test -race ./...`
 Expected: PASS。
+
+**并且点名一次**——`go test ./...` 通过不能证明这五个测试名还在（`-run` 匹配不到东西时 exit 0）：
+
+Run: `go test ./internal/router/ -run 'TestTheWindow|TestTheReason|TestTheConfidence|TestTheCalibration' -v 2>&1 | grep -E '^(--- PASS|--- FAIL)' | sort | uniq -c`
+Expected: `6 --- PASS`，一行 `--- FAIL` 都没有。**少于 6 行就是有一个测试名不匹配了**：那不是「测试通过」，是「测试不见了」。这正是 2026-10-24 审核时三个 Review Focus 测试长期隐形的原因。
 
 - [ ] **Step 6: 提交**
 
@@ -866,3 +884,85 @@ Run: `npm publish --access public`，然后在隔离 HOME 里 `magpie plugin add
 git add clients/magpie-page/package.json
 git commit -m "build: publish the magpie page plugin to npm"
 ```
+
+---
+
+## 2026-10-23 之后的偏离（2026-10-24 回填）
+
+这份计划是 2026-10-22 写的。执行期间 spec 变了、SP15 又叠了上来，所以计划里有几处已经
+不成立了。这里写清楚**哪里变了、为什么变、现在以什么为准**，免得下一个读这份计划的人
+按旧前提做事。
+
+### 1. spec §7 反转了：options 通道从「撤掉」变成「做出来」
+
+- **计划初稿的前提**：spec §7 说 options 那条路走不通（写一次要退休 magpie 的插件宿主，
+  5–18 s），所以本 SP 不碰 options，Task 1 去把早先按这条路写的代码撤掉。
+- **2026-10-23 的实测推翻了那条理由**：写 options 不退休宿主（宿主是给 middleware 用的，
+  页面插件没有宿主），读/写 options 各 0.17 s。spec §7 改写成「走这条路」，并加了一节
+  实测代价表。
+- **于是**：
+  - Task 1 变成反任务。它要删的四个文件在写计划时就不在树里了（`50871171` 的树只有
+    plan 和 spec 两个文件），所以它没有东西可删，也没有产生提交；后来
+    `internal/magpie/plugin_options.go`、`cmd/mbridge/page_cli.go` 又是**新写的**
+    （`30f64b74`），是这条路的一部分，不是 Task 1 该删的遗留。
+  - Task 9 的 magpie 页面从「只读 `usage:summary`」长成「带 mbridge 快照 + 重启按钮」
+    （`30f64b74`、`f05a480a`）。Global Constraints 里「状态、报表、重启不进 magpie 页面」
+    这条随之改了口径：现在的边界是**magpie 页面拿不到 mbridge 的实时数据，靠 options
+    快照**，快照最多 15 秒一次。
+  - Task 11 的包名从 `@weiping/mbridge-page` 改成 `@weiping/mbridge`（`b4e51c8c`）。旧名
+    `@weiping/mbridge-page` 停在 0.5.3，不再发。
+
+### 2. 逐任务的执行情况
+
+**别拿复选框判断一个任务做没做**——执行时没在用计划的追踪机制，65 个 `- [ ]` 一个都没勾
+（SP15 也一样）。看这张表：
+
+| Task | 状态 | 提交 | 说明 |
+| --- | --- | --- | --- |
+| 1 | **未执行**（前提被 spec §7 推翻） | — | 见上一节。没有 `refactor: drop the options channel…` 这个提交 |
+| 2 | 完成 | `4d7ad05a` | `mbridge service restart`、`mbridge status --json` |
+| 3 | 完成 | `9f98ae9b` | `Event.ClassifyMs`、`Sessions.Live` |
+| 4 | 完成 | `3d8d9be0` | `GET /v1/bridge/router` 扩字段（§A/§B） |
+| 5 | 完成 | `534dab15` | live 卡片（§C） |
+| 6 | 完成，**但缺三个测试** | `80d7addf` | 2026-10-24 补上，见下一节 |
+| 7 | 完成 | `b5f82828` | `GET /status` 的自包含页面 |
+| 8 | 完成 | `bc613daa` | 同源重启端点 |
+| 9 | 完成 | `06057e6c` | 之后 10-23 还有 8 个提交继续改（options 通道那批） |
+| 10 | **部分** | `8f102e1d` | README 和 spec 回了；计划里的第二个提交 `test: verify the status page…` 不存在——真机验收当时没有证据 |
+| 11 | 完成 | `6d055481` | 提交信息与计划写的不同（那时包名还没改）；npm 上 `@weiping/mbridge` 已到 0.1.4 |
+
+### 3. 2026-10-24 的审核补了什么
+
+- **三个测试补上**（`internal/router/window_test.go`）：
+  `TestTheWindowOnlyChangesTheAggregateSections`、
+  `TestTheConfidenceMeanSkipsTheTurnsThatDidNotAsk`、
+  `TestTheCalibrationTableLeavesOutTheTurnsThatWereNotFollowed`。
+  行为本来就在（`StatusPayload` 只把 window 写进 `window` 那个键；`calTurn.value` 跳过没问
+  和没被采纳的轮次），所以这三个是**回归测试**：每个都做了变异验证——把生产代码改坏，
+  看测试变红，再改回去。
+- **Task 6 Step 5 加了点名断言**：`-run` 匹配不到名字时 exit 0，`go test ./...` 通过不能
+  证明那些名字还在。现在这一步数行数（`Expected: 6 --- PASS`），少了行就是测试不见了。
+- **Global Constraints 里「没问的轮次不进覆盖率的分母」改回 spec §E 的口径**：覆盖率就是
+  「问了的轮次 ÷ 全部 decide 轮次」，低于 100% 是正常状态。
+- **Task 10 Step 5 的真机验收补跑并留档**：
+  [`docs/superpowers/notes/2026-10-24-sp14-acceptance.md`](notes/2026-10-24-sp14-acceptance.md)。
+
+### 4. 执行方式本身也要记一笔
+
+执行**没有**走 superpowers 的 ledger（`.superpowers/` 下没有 `progress.md`）。所以：
+
+- 任务完成的记录只散在 git 提交里；**裁决**（比如 options 那条路的翻转）只因为有人写进了
+  spec 才留下来。
+- 全部提交都直接落在 `main` 上，没有分支，也没有 worktree。
+- 没有一轮整分支的最终评审。
+- 计划里的复选框从头到尾没被勾过。
+
+### 5. 还剩什么没做
+
+- Task 10 Step 5 在执行时没有真机证据。2026-10-24 补跑了一遍并留档，但补跑时用的是**这台
+  机器上已经在跑的正式实例**（重启了它 4 次），不是全新装的一套。
+- 验收记录里唯一没做完的一条：**没有在 magpie 窗口里点开过那个页面插件**（这台机器上
+  `magpie plugin --json` 不返回内容）。「tab 落在侧栏 Plugins 组、标题按窗口语言、明暗两套
+  变量对着 magpie 的主题真的对」这三条目前**没有证据**，下次要补。
+- Task 11 的「隔离 HOME 里 `magpie plugin add @weiping/mbridge`」在 2026-10-22 之后补过，
+  但 `@weiping/mbridge` 之后又发了 0.1.1–0.1.4；最新一版的安装状态见验收记录。

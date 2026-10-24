@@ -178,6 +178,23 @@ tell users it works.**
   box. A GOOS build is not a test.
 - Seen 1× (2026-10-05).
 
+**A verification command that names things must fail when the name is
+gone. `go test -run` on a name that matches nothing exits 0.**
+- SP14's Task 6 was verified with
+  `go test ./internal/router/ -run 'TestTheWindow|TestTheReason|TestTheConfidence|TestTheCalibration'`.
+  Two of the four patterns matched no test at all and the command still
+  printed `ok`. Three of the five tests the plan named were never written —
+  including the two that guard "not measured" drawn as 0 — and nothing
+  noticed: the suite was green, the task's verification was green, and the
+  Review Focus items they covered were quietly missing.
+- `go test -run` on a missing name prints "no tests to run" and exits 0, so
+  it cannot be the only gate. A plan that names its tests has to count them
+  (`-v | grep -c '^--- PASS'` and check the number), or the name is not
+  verified at all.
+- The same trap in a plan: a step whose `Expected:` is "PASS" passes when
+  the thing it names does not exist. Name the count, not just the verdict.
+- Seen 1× (2026-10-24).
+
 ## Concurrency and tests
 
 **Never send on a channel, or call anything that can block, while holding a
