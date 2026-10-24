@@ -191,3 +191,32 @@ Go（`go vet ./... && go test -race ./...`）：
      （Workers AI 上的 Jev 本体）只在 `pickedFrom` 里、没在 `models` 里，所以
      `magpie provider models cloudflare-jev` 显示 `not shown typesafe/jev · not picked`；
      要用得先 `magpie provider models cloudflare-jev +typesafe/jev`。
+
+7. **真机：把 `cloudflare-jev/typesafe/jev` 放在组首位后，还有一处不兼容（已修，`classify.go`）**
+
+   用户 2026-10-24 23:30 左右把组改成
+   `cloudflare-jev/typesafe/jev → typesafe/jev-latest → typesafe/jev-preview → clef → clef-flash`，
+   并把 `cloudflare-jev` 的 `typesafe/jev` 勾进 `models`。组本身因此变快变稳（20 次实测里
+   19 次 `cloudflare-jev/typesafe/jev` 答 200，p50 567ms，max 1.96s；1 次 Cloudflare 慢到
+   8.0s 被 mbridge 的超时打断）。但**分类仍然失败**：`router.jsonl` 出现新错
+   `router: jev chose "", not a tier`（2026-10-24T15:33:23Z）。
+
+   原因：Workers AI 的响应是**两层信封**——
+   `{"result":{"state":"Completed","result":{"answers":…}}}`——magpie 的
+   `provider.DecideAnswer` 只拆一层（`decide_wire.go` 的 Cloudflare 分支单次
+   `return env.Result`），所以到 mbridge 手里仍是
+   `{"state":"Completed","result":{"answers":…}}`；而 `classifyJev` 只在**顶层**找
+   `answers`，取到空 tier → 报错 → 落回默认档。`@cf/cloudflare/clef` 没这问题（它自己不带
+   信封），所以此前只测 clef 时看不出来。
+
+   修法（mbridge 侧，`internal/router/classify.go`）：新增 `jevAnswers(reply)`，顶层有
+   `answers` 就用，否则跟着 `result` 往里走（最多 4 层），`jevReply` 改为直接描述 answers
+   对象。测试 `TestJevClassifyThroughARelaysEnvelope`（用真机抓到的双层 body 与 Cloudflare
+   原始 body）、`TestJevClassifyRefusesAReplyWithoutAnswers`。
+
+   上游可一并修：`DecideAnswer` 的 Cloudflare 分支改成循环拆信封（`while result is an
+   object`），这样任何客户端都不用知道中继套了几层。
+
+   还有一处天花板：8s 的 `classify_timeout_ms` 一到，mbridge 取消整轮，magpie 就**没法**
+   轮到下一个成员（日志里那次的错是 Cloudflare 的 `context canceled`）。想让它真的
+   failover，把超时提到 ≥10000，让慢的首个成员失败后 clef（≈0.7s）还来得及答。

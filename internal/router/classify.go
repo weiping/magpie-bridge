@@ -125,20 +125,52 @@ type jevQuestion struct {
 	Criteria     map[string]string `json:"criteria,omitempty"`
 }
 
-// jevReply is what the Jev response parses into.
+// jevReply is a System One answer: what the decision model said of each
+// question asked.
 type jevReply struct {
-	Answers struct {
-		Tier struct {
-			Choice     string  `json:"choice"`
-			Confidence float64 `json:"confidence"`
-		} `json:"tier"`
-		Dissatisfied struct {
-			Noul float64 `json:"noul"`
-		} `json:"dissatisfied"`
-		Compact struct {
-			Noul float64 `json:"noul"`
-		} `json:"compact"`
-	} `json:"answers"`
+	Tier struct {
+		Choice     string  `json:"choice"`
+		Confidence float64 `json:"confidence"`
+	} `json:"tier"`
+	Dissatisfied struct {
+		Noul float64 `json:"noul"`
+	} `json:"dissatisfied"`
+	Compact struct {
+		Noul float64 `json:"noul"`
+	} `json:"compact"`
+}
+
+// jevAnswers is a System One reply's answers. A decision API gives them at
+// the top, {"answers":…}; a relay wraps the model's own answer in an
+// envelope of its own, and magpie takes one envelope off
+// (provider.DecideAnswer). So a Jev reached through Cloudflare's Workers AI
+// arrives as {"state":"Completed","result":{"answers":…}} — Jev's answer
+// inside Cloudflare's, one envelope deeper than Jev's own — and one read by
+// its own API arrives with no envelope at all. Envelopes are followed while
+// the reply has one where the answers would be, rather than the answers
+// read from one spot only: reading them at the top alone made every
+// cloudflare-jev answer "not a tier", so the router fell to the default
+// tier on every turn.
+func jevAnswers(reply []byte) (json.RawMessage, error) {
+	var env struct {
+		Answers json.RawMessage `json:"answers"`
+		Result  json.RawMessage `json:"result"`
+	}
+	b := reply
+	for range 4 { // Cloudflare's wraps twice; no relay is deeper than that
+		env.Answers, env.Result = nil, nil
+		if err := json.Unmarshal(b, &env); err != nil {
+			return nil, err
+		}
+		if len(env.Answers) > 0 && env.Answers[0] == '{' {
+			return env.Answers, nil
+		}
+		if len(env.Result) == 0 || env.Result[0] != '{' {
+			break
+		}
+		b = env.Result
+	}
+	return nil, errors.New("no answers in the reply")
 }
 
 func (c *classifier) classifyJev(ctx context.Context, q Question) (*Verdict, error) {
@@ -198,15 +230,19 @@ func (c *classifier) classifyJev(ctx context.Context, q Question) (*Verdict, err
 	if err != nil {
 		return nil, err
 	}
+	ans, err := jevAnswers([]byte(reply))
+	if err != nil {
+		return nil, fmt.Errorf("router: jev reply: %v", err)
+	}
 	var parsed jevReply
-	if err := json.Unmarshal([]byte(reply), &parsed); err != nil {
+	if err := json.Unmarshal(ans, &parsed); err != nil {
 		return nil, fmt.Errorf("router: jev reply: %v", err)
 	}
 	v := &Verdict{
-		Tier:           Tier(parsed.Answers.Tier.Choice),
-		TierConfidence: parsed.Answers.Tier.Confidence,
-		Dissatisfied:   parsed.Answers.Dissatisfied.Noul,
-		Compact:        parsed.Answers.Compact.Noul,
+		Tier:           Tier(parsed.Tier.Choice),
+		TierConfidence: parsed.Tier.Confidence,
+		Dissatisfied:   parsed.Dissatisfied.Noul,
+		Compact:        parsed.Compact.Noul,
 		Source:         jevClassifier,
 	}
 	if v.Compact == 0 && IsCompactPrompt(q.Message) {

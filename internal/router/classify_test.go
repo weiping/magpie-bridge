@@ -93,6 +93,48 @@ func TestJevClassify(t *testing.T) {
 	}
 }
 
+// TestJevClassifyThroughARelaysEnvelope: a Jev reached through a relay
+// answers inside the relay's envelope as well as its own. Cloudflare's
+// Workers AI wraps a Typesafe Jev answer once ({"state":…,"result":…}),
+// magpie takes one envelope off (provider.DecideAnswer), so what mbridge
+// reads is Jev's answer in Cloudflare's envelope still — exactly the reply
+// captured from magpie 0.1.1376 on 2026-10-24. Reading the answers at the
+// top level alone made this reply "not a tier" on every turn.
+func TestJevClassifyThroughARelaysEnvelope(t *testing.T) {
+	for _, tc := range []struct{ name, reply string }{
+		{"cloudflare workers ai via magpie", `{"state":"Completed","result":{"model":"jev-1.13.0","answers":{"compact":{"type":"noul","noul":0.01},"dissatisfied":{"type":"noul","noul":0.23},"tier":{"type":"choice","choice":"fast","probabilities":{"balanced":0,"fast":1,"performance":0},"confidence":1}},"usage":{"input_tokens":432,"output_tokens":73}}}`},
+		{"cloudflare raw, both envelopes", `{"result":{"state":"Completed","result":{"model":"jev-1.13.0","answers":{"tier":{"choice":"fast","confidence":1}}}},"success":true,"errors":[],"messages":[]}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := askFunc(func(context.Context, string, string) (string, error) { return tc.reply, nil })
+			v, err := NewClassifier(testConfig("mb-classifier"), f.ask).Classify(context.Background(), Question{
+				Message:  "fix a typo in a comment",
+				Agent:    "main",
+				Criteria: testCriteria,
+			})
+			if err != nil {
+				t.Fatalf("classify: %v", err)
+			}
+			if v.Tier != TierFast || v.TierConfidence != 1 {
+				t.Fatalf("verdict: %+v", v)
+			}
+		})
+	}
+}
+
+// TestJevClassifyRefusesAReplyWithoutAnswers: an envelope with nothing in it
+// is an error, not a tier of "".
+func TestJevClassifyRefusesAReplyWithoutAnswers(t *testing.T) {
+	f := askFunc(func(context.Context, string, string) (string, error) {
+		return `{"state":"Failed","errors":[{"message":"boom"}]}`, nil
+	})
+	if _, err := NewClassifier(testConfig("mb-classifier"), f.ask).Classify(context.Background(), Question{
+		Message: "hi", Agent: "main", Criteria: testCriteria,
+	}); err == nil {
+		t.Fatal("a reply without answers classified")
+	}
+}
+
 func TestJevClassifyFirstTurn(t *testing.T) {
 	var gotBody string
 	f := askFunc(func(_ context.Context, _, body string) (string, error) {
