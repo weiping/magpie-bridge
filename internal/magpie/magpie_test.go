@@ -233,6 +233,19 @@ func TestModelListReadsContextWindow(t *testing.T) {
 	}
 }
 
+func TestModelListSendsDecidersHeader(t *testing.T) {
+	var deciders string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		deciders = r.Header.Get("X-Magpie-Deciders")
+		io.WriteString(w, `{"data":[]}`)
+	}))
+	t.Cleanup(srv.Close)
+	_, _ = New(srv.URL).ModelList(context.Background())
+	if deciders != "1" {
+		t.Fatalf("X-Magpie-Deciders header %q, want 1", deciders)
+	}
+}
+
 // `magpie group <id>` as a user's magpie 0.1.1157 printed it (10-11), with
 // the plugin log line the CLI writes first: both members are Copilot's and
 // Copilot was switched off, so magpie served neither and dropped the group

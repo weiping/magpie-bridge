@@ -70,7 +70,7 @@ func (e *Error) Error() string {
 	return fmt.Sprintf("magpie %s: %d %s", e.Op, e.Status, e.Msg)
 }
 
-func (c *Client) do(ctx context.Context, method, path string, body []byte) ([]byte, error) {
+func (c *Client) do(ctx context.Context, method, path string, body []byte, headers ...string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -79,6 +79,9 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte) ([]by
 	req.Header.Set("User-Agent", UserAgent)
 	if c.Key != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Key)
+	}
+	for i := 0; i+1 < len(headers); i += 2 {
+		req.Header.Set(headers[i], headers[i+1])
 	}
 	res, err := c.HTTP.Do(req)
 	if err != nil {
@@ -141,8 +144,10 @@ type Model struct {
 }
 
 // ModelList lists what magpie serves (groups included): GET /v1/models.
+// Passes X-Magpie-Deciders: 1 so decision models (Jev, Clef) are included
+// alongside chat models.
 func (c *Client) ModelList(ctx context.Context) ([]Model, error) {
-	out, err := c.do(ctx, http.MethodGet, "/v1/models", nil)
+	out, err := c.do(ctx, http.MethodGet, "/v1/models", nil, "X-Magpie-Deciders", "1")
 	if err != nil {
 		return nil, err
 	}
