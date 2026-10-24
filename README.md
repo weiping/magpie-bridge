@@ -57,7 +57,7 @@ Magpie Bridge 和官方 [magpie](https://github.com/yetone/magpie) 并排运行�
 3. **建档位并接上 Agent**：
 
    ```sh
-   mbridge router init --preset cn --groups-only   # 在 magpie 里建四个路由组，写 router.json（还有 frontier、anthropic 预设）
+   mbridge router init --preset cn --groups-only   # 在 magpie 里建四个档位组和一个分类器组，写 router.json（还有 frontier、anthropic 预设）
    magpie claude group/mbridge                     # Claude Code 的 base URL 和模型指到 magpie
    cd ~/code/your-project
    mbridge router init --preset cn                 # 接好 Claude Code（本项目）、Codex 和 Pi
@@ -104,7 +104,7 @@ mbridge version                       # mbridge 和 magpie 的版本
 
 ## 配置
 
-mbridge 的路由配置有两处：magpie 里的四个路由组（存在 magpie 自己的配置里），和 `~/.config/magpie-bridge/router.json`。两者都由 `mbridge router init --preset <frontier|anthropic|cn>` 生成，之后直接改文件即可。
+mbridge 的路由配置有两处：magpie 里的四个档位组和一个分类器组（存在 magpie 自己的配置里），和 `~/.config/magpie-bridge/router.json`。两者都由 `mbridge router init --preset <frontier|anthropic|cn>` 生成，之后直接改文件即可。
 
 ### 路由组
 
@@ -114,6 +114,7 @@ mbridge 的路由配置有两处：magpie 里的四个路由组（存在 magpie 
 | `mb-balanced` / `mb-native-balanced` | 均衡档候选组 | `pace`（按额度周窗口的恢复节奏分配） |
 | `mb-perf` | 高性能候选组，成员按能力从强到弱排列 | `order`（依次尝试，强模型在前） |
 | `mbridge` / `mb-native` | 档位路由组；`mbridge` 由 mbridge 按轮改写档位，`mb-native` 由 magpie 原生规则选档 | `order` |
+| `mb-classifier` | 分类器组；`router.json` 的 `classifier` 指到它。**成员必须全是 decision model**，见「换分类器组里的模型」 | `order`（依次尝试） |
 
 #### 换档位组里的模型
 
@@ -147,7 +148,7 @@ mbridge router check                  # 检查分组是否齐全、上下文窗�
 
 `cn` 和 `frontier` 的候选不写厂商，哪个厂商提供该模型就用哪个（如 `moonshot`、`moonshot-cn`、`qwen-cn` 都提供 `kimi-k3`）。
 
-`mb-fast`、`mb-balanced`、`mb-perf`、`mbridge` 这四个分组名归 Magpie Bridge 使用，别拿它们做别的用途。再次执行 `mbridge router init` 会保留已有的同名分组、`router.json`，以及当前项目 `.claude/settings.local.json` 里你已设过的 `ANTHROPIC_*` 值，只补上缺的部分，并接好各 Agent；加 `--force` 才会用预设覆盖它们。你的 Claude Code `model` 设置已经是 `group/mbridge`（含 `[1m]`）时，init 不写 `ANTHROPIC_MODEL`，以免环境变量盖过它。
+`mb-fast`、`mb-balanced`、`mb-perf`、`mbridge`、`mb-classifier` 这五个分组名归 Magpie Bridge 使用，别拿它们做别的用途。再次执行 `mbridge router init` 会保留已有的同名分组、`router.json`，以及当前项目 `.claude/settings.local.json` 里你已设过的 `ANTHROPIC_*` 值，只补上缺的部分，并接好各 Agent；加 `--force` 才会用预设覆盖它们。你的 Claude Code `model` 设置已经是 `group/mbridge`（含 `[1m]`）时，init 不写 `ANTHROPIC_MODEL`，以免环境变量盖过它。
 
 ### `router.json`
 
@@ -163,7 +164,7 @@ mbridge router check                  # 检查分组是否齐全、上下文窗�
     "performance": { "group": "mb-perf",     "claude_alias": "opus",   "criteria": "…" }
   },
   "default_tier": "balanced",
-  "classifier": "local",
+  "classifier": "mb-classifier",
   "classify_timeout_ms": 2500,
   "thresholds": {
     "tier_min": 0.4,
@@ -188,7 +189,7 @@ mbridge router check                  # 检查分组是否齐全、上下文窗�
 | `tiers.<档>.claude_alias` | — | Claude Code 侧的别名映射（`haiku`/`sonnet`/`opus`） |
 | `tiers.<档>.criteria` | — | 交给分类器的选档标准（自然语言） |
 | `default_tier` | `balanced` | 分类失败或不可信时的落档（规则 R8） |
-| `classifier` | `local` | 分类器：`typesafe/jev-latest`，或任意 `provider/model`。普通模型用结构化输出给出档位置信度与不满分数（实测 Kimi 支持）；厂商拒绝 `response_format` 时（如 DeepSeek 返回 400）退回只回编号的提示词，此时置信度按回答是否合法记 1/0，事件里的 `classifier` 标 `#plain` |
+| `classifier` | `mb-classifier` | 分类器：magpie 路由组名（`mb-classifier`，见下节）、`typesafe/jev-latest`，或任意 `provider/model`。普通模型用结构化输出给出档位置信度与不满分数（实测 Kimi 支持）；厂商拒绝 `response_format` 时（如 DeepSeek 返回 400）退回只回编号的提示词，此时置信度按回答是否合法记 1/0，事件里的 `classifier` 标 `#plain` |
 | `classify_timeout_ms` | `2500` | 分类超时；超时该轮落默认档，下一轮补偿。三个 Agent 插件等 `/turn` 的时间随它走：本值加 500ms，限定在 1500–8000ms 之间 |
 | `thresholds.tier_min` | `0.4` | 分类结果的最低置信度（R5） |
 | `thresholds.dissatisfied_min` | `0.7` | 「用户在说上一轮不对」的判定阈值（R3 升档） |
@@ -210,7 +211,9 @@ mbridge router check                  # 检查分组是否齐全、上下文窗�
 
 ### 分类器：TypeSafe Jev
 
-分类器默认是 `"local"`——这是个占位值，要换成实际的 `provider/model`（如 `ollama/qwen3-4b`），否则分类一直失败，路由只能走默认档。推荐的分类器是 TypeSafe 的 [Jev](https://docs.typesafe.ai/introduction)：单请求返回档位选择和置信度，以及「用户在说上一轮不对」的概率，不用自己拼提示词。
+分类器可以填一个模型 id，也可以填一个 magpie 路由组名。`mbridge router init` 默认建好 `mb-classifier` 组（成员 `typesafe/jev-latest`），并把 `router.json` 的 `classifier` 写成 `"mb-classifier"`；magpie 没有 provider 服务 `typesafe/jev-latest` 时，init 跳过建组、把 `classifier` 写回占位值 `"local"`——那是个无效值，要换成实际的 `provider/model`（如 `ollama/qwen3-4b`），否则分类一直失败，路由只能走默认档。老配置（没有 `classifier` 字段的）读出来也是 `"local"`。
+
+推荐的分类器是 TypeSafe 的 [Jev](https://docs.typesafe.ai/introduction)：单请求返回档位选择和置信度，以及「用户在说上一轮不对」的概率，不用自己拼提示词。
 
 ```sh
 # 1. 加 TypeSafe provider（key 从 https://console.typesafe.ai/keys 拿）
@@ -228,6 +231,17 @@ magpie provider add typesafe <api-key>
 不想直连 TypeSafe 还有两个中继预设：`vercel-jev`（Vercel AI Gateway，分类器写 `vercel-jev/typesafe-ai/jev`）和 `cloudflare-jev`（Cloudflare Workers AI，写 `cloudflare-jev/typesafe/jev`）。
 
 时延提示：实测本机到 TypeSafe 的请求热的时候 300–450ms，空闲十几二十分钟后的第一轮要 1.5–2.4s（冷启动）。默认超时 2500ms 偶尔压线，建议设 4000。超时时该轮落默认档、下一轮自动补偿。如果网络到 TypeSafe 不稳定，用本地小模型更稳。
+
+#### 换分类器组里的模型
+
+`mb-classifier` 组的成员就是分类器。**成员必须全是 decision model**（Jev、Clef、Nimble、Tev 这类能在 `/v1/systemone` 上回答决策请求的模型）——加一个普通 chat model 进去，这个组就不再是 decision 组，`/v1/systemone` 直接回 400：`the routing group mb-classifier holds models that hold conversations; System One asks a group of decision models`，分类每轮都失败，路由只能走默认档。
+
+```sh
+magpie group mb-classifier                        # 看现在有哪些成员
+magpie group set mb-classifier models=typesafe/jev-latest routing=order
+```
+
+`router.json` 里写 `mb-classifier` 或 `group/mb-classifier` 都认；magpie 的原生规则（`magpie group rule add … classifier=`）只认 `group/mb-classifier` 这种带前缀的写法。
 
 ### 轮末复核与置信度校准
 
@@ -298,7 +312,7 @@ magpie group mb-native                                   # 看成员、规则和
 
 - `classifier` 还是占位值 `local` 时，init 只提示，不建原生组，其余照常完成；设好分类器再跑一次即可。
 - 已在 magpie 里的原生组原样保留；`mb-native` 在但一条规则都没有时，只补规则。
-- `--force` 不用来重建原生组：它会把四个档位组按预设放回去，并把 `router.json` 写回默认值（分类器又成 `local`）。要重建，先 `magpie group rm mb-native mb-native-balanced`，再跑 `mbridge router init --preset … --groups-only --native`。改了 `criteria` 或档位组的成员之后，规则和 `mb-native-balanced` 不会自动跟着变，也这样重建。
+- `--force` 不用来重建原生组：它会把四个档位组按预设放回去，并把 `router.json` 写回默认值（分类器重写成 `mb-classifier`；magpie 没有 provider 服务 `typesafe/jev-latest` 时才是 `local`）。要重建，先 `magpie group rm mb-native mb-native-balanced`，再跑 `mbridge router init --preset … --groups-only --native`。改了 `criteria` 或档位组的成员之后，规则和 `mb-native-balanced` 不会自动跟着变，也这样重建。
 
 规则里的分类器可以是任何 magpie 有的模型，建议用小而快、不带推理的；它的调用会作为 magpie 自己的请求出现在 Usage 里。
 

@@ -1,6 +1,7 @@
 # SP15：分类器走 magpie 路由组（mb-classifier）
 
-> 状态：待作者确认。
+> 状态：已实施（2026-10-24：`b307e663`、`93d8e8db`、`8d73cc44`、`ba479ce9`），
+> 真机 init 未验（见 §8.5）。
 
 ## 1. 问题
 
@@ -27,7 +28,7 @@
 - **端点存在**：`POST /v1/systemone`（`gateway.go:712` 注册，`serveSystemOne`）。
 - **接受组**：`serveSystemOne` 先调 `decisionGroupOf(q.Model)`——接受 `group/<id>` 前缀（`GroupPrefix = "group/"`）**或裸组名**（`GroupFor` 按名字找），命中即走 `serveDecisionGroup` → `serveDecideTries`：组内每个 decision model 的 keys/accounts 依次问，retryable 的失败 rest、下一个顶上，`withModel(body, c.model)` 只把 body 的 `model` 换成实际成员、**questions/state 原样透传**。
 - **chat 端点是死路**：chat 的 model 解析对 `g.Decides()` 的组返回 400「holds no conversation」。
-- **组的硬约束**：`g.Decides()`（`decide_group.go:38`）= `len(Members) > 0 && 每个成员 decidingMember`——**成员必须全是 decision model**（Jev/Clef/Nimble/Tev 等）。`typesafe/jev-latest` 是（`decidingMember` → `IsDecider` / provider `DecidesModel`）。
+- **组的硬约束**：`g.Decides()`（`decide_group.go:38`）= `len(Members) > 0 && 每个成员 decidingMember`——**成员必须全是 decision model**（Jev/Clef/Nimble/Tev 等）。`typesafe/jev-latest` 是（`decidingMember` → `IsDecider` / provider `DecidesModel`）。混进一个 chat model，这个组就不再是 decision 组：`decisionGroupOf`（`decide_group.go:49-53`）对**显式** `group/<id>` 的请求回 400「the routing group %s holds models that hold conversations; System One asks a group of decision models, or a decision model as "provider/model"」；裸组名则落到「按模型解析」那条路，报「knows no model」。mbridge 发的是 `group/<id>`，所以踩的是前者（对着 magpie main 源码核对，2026-10-24）。
 - **旁证**：magpie 组自身就支持 `classifier=group/<id>`。
 
 结论：mbridge 把 `group/mb-classifier` 发 `/v1/systemone` 即可，Jev 两问 body 完全兼容。
@@ -107,3 +108,40 @@ Go（`go vet ./... && go test -race ./...`）：
 ## 7. 顺序
 
 单条链，一个提交：`isClassifierGroup` + 调用链（`classify.go`/`ask.go`/`api.go`）→ `routerInit` 建组 + 默认 classifier → 测试。改完回填本 spec 的实现决定（若 builder 有偏离，记进 spec 而非另立口子）。
+
+## 8. 实现决定（2026-10-24 回填）
+
+实现按 §4 走。§7 说的「单条链，一个提交」没照做：实际四个提交——
+`b307e663`（判定 + 三处消费）、`93d8e8db`（init 建组 + 默认 classifier）、
+`8d73cc44`（native init 补 `group/` 前缀）、`ba479ce9`（`ModelList` 带 deciders 头）。
+后两个是执行中发现的问题修复，各自独立成提交。
+
+1. **`isClassifierGroup` 与 §4.1 一字不差**，三处消费点（`NewClassifier`、
+   `AskVia`、`classifySource`）都调它。`AskVia` 写进 body 的是**补过前缀的引用**
+   （裸名 → `group/<name>`），magpie 靠 body 的 `model` 字段解析组；`typesafe/`
+   那条路不变。测试：`TestIsClassifierGroup`、`TestAskViaRoutesGroupToSystemOne`、
+   `TestClassifySourceGroupIsJev`。
+
+2. **§4.3 的 typesafe 回退用「不追加」实现**：组列表里根本没有 `mb-classifier`
+   （而不是追加之后再撞 magpie 的拒绝），所以不会有 `group add` 去失败；同时打印
+   amber warning、`router.json` 的 `classifier` 写 `"local"`。效果与 §4.3 一致。
+   测试：`TestRouterInitSkipsClassifierGroupWhenTypesafeMissing`。
+
+3. **`served` 必须能看见 decision model，否则 SP15 静默失效（原稿没写，实现时发现）**：
+   magpie 的 `/v1/models` 默认**不列 decision model**，`typesafe/jev-latest` 不在里面
+   → 上一条永远走回退分支 → `mb-classifier` 永远不建、`classifier` 永远写 `"local"`，
+   SP15 看起来什么都没发生。故 `magpie.Client.ModelList` 必须带 `X-Magpie-Deciders: 1`
+   （`ba479ce9`，测试 `TestModelListSendsDecidersHeader`）。**改这段时别把这个头去掉**：
+   去掉不会编译失败、也不会有测试变红，只会让 init 静默不建组。
+
+4. **native init 自己判「裸组名」，没调 `isClassifierGroup`（跨包，计划里那条约束在这里破例）**：
+   `isClassifierGroup` 在 `internal/router` 里未导出，`cmd/mbridge` 够不着，所以
+   `router_native.go` 自己判「不含 `/` 就是裸组名」并补 `group/` 前缀（`8d73cc44`，
+   测试 `TestRouterInitNativeUsesGroupRefForClassifier`）。**这条路径只在
+   `cfg.Classifier` 非空非 `local` 时可达**——`router_native.go:87` 先把 `""`/`"local"`
+   早退提示掉，所以 `group/local` 不会被写进 magpie 规则
+   （测试 `TestRouterInitNativeSkipsWhenClassifierIsLocal`）。改代码时别把那个早退挪到后面。
+
+5. **没验的**：真机跑一遍 `mbridge router init --preset cn --groups-only`
+   （看 `magpie group mb-classifier` 的成员、`router.json` 的 `classifier`）**还没做**——
+   它会动线上 magpie 的组和 `router.json`。做完之前，别把这条功能当成端到端验过。
