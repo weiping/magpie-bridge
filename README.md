@@ -247,6 +247,23 @@ magpie group set mb-classifier models=typesafe/jev-latest routing=order
 
 `router.json` 里写 `mb-classifier` 或 `group/mb-classifier` 都认；magpie 的原生规则（`magpie group rule add … classifier=`）只认 `group/mb-classifier` 这种带前缀的写法。
 
+#### 走 Cloudflare Workers AI 时用 cf-jev 插件
+
+magpie 自带的 `cloudflare-jev` 有个信封 bug：Workers AI 的回答套了两层（Cloudflare 的 `result` + Jev 自己的 `state`/`result`），magpie 只拆一层，于是 `/v1/systemone` 回来的东西顶层没有 `answers`，分类每轮都失败（`router: jev chose "", not a tier`）。
+
+绕法是自带的插件 `cf-jev`（`~/workspace/dev/cf-jev-plugin`）：它在自己的 `fetch` 里把两层都拆掉再交回 magpie，所以 magpie 和它的客户端看到的都是标准 System One 答案。
+
+```sh
+magpie plugin add ~/workspace/dev/cf-jev-plugin
+magpie plugin login cf-jev          # Cloudflare token；只做 Workers AI 的 token 粘 "<account id>:<token>"
+magpie provider test cf-jev         # ✓ decide
+magpie group set mb-classifier \
+  models=cf-jev/typesafe/jev,cf-jev/@cf/cloudflare/clef,cf-jev/@cf/cloudflare/clef-flash,typesafe/jev-latest \
+  routing=order
+```
+
+上游修好（`DecideAnswer` 循环拆信封）之后这个插件就可以删掉。
+
 ### 轮末复核与置信度校准
 
 默认 `"review": {"mode": "off"}`——**默认关闭**，因为开启后每轮的回复会被发给分类器厂商（走你已配置的 classifier 渠道）。想用它，按这三步走：

@@ -226,3 +226,26 @@ Go（`go vet ./... && go test -race ./...`）：
    还有一处天花板：8s 的 `classify_timeout_ms` 一到，mbridge 取消整轮，magpie 就**没法**
    轮到下一个成员（日志里那次的错是 Cloudflare 的 `context canceled`）。想让它真的
    failover，把超时提到 ≥10000，让慢的首个成员失败后 clef（≈0.7s）还来得及答。
+
+   已做：`classify_timeout_ms` 改成 10000（真机 daemon 重启后生效），二进制重装到
+   `~/bin/mbridge` + `~/.local/bin/mbridge` 并 `mbridge service restart`；重启后
+   `/v1/bridge/turn` 四条全部 `R6-adopt source=jev`，`router.jsonl` 里最后一条
+   `jev chose ""` 的错误在修复之前。
+
+8. **自用插件绕过上游 bug（`~/workspace/dev/cf-jev-plugin`，2026-10-25）**
+
+   上游 PR 因为账号没有 `CreatePullRequest` 权限开不出来（`yetone/magpie` 只读；
+   同一 token 在自己的仓库能开 PR，所以不是 fork 或分支的问题），于是改成插件方案：
+
+   - magpie 的插件可以声明自己服务 System One（`config` 钩子 `decide: true`、模型
+     `decides: true`），magpie 就把该 provider 的 `Decide` 指向 `plugin://cf-jev/v1`，
+     所有 System One 请求都过插件的 `fetch`。
+   - 插件在 `fetch` 里调 Workers AI，把 Cloudflare 与 Jev 的两层 `result` 拆干净，只把
+     `{"model","answers","usage"}` 交回；这条路径上 magpie 的 `via` 是
+     `ViaSystemOne`，`DecideAnswer` 原样返回，所以顶层 `answers` 一路到客户端。
+   - 实测：三个模型经 `/v1/systemone` 均 200、`keys=[model,answers,usage]`；
+     当天 17 次 `group/mb-classifier` 调用全部 200（10 次 builtin cloudflare-jev、
+     7 次 cf-jev），p50 582ms；mbridge daemon 四条全部 `R6-adopt source=jev`。
+   - 意义：**即使 mbridge 不带自身那两处 parsing 修复，这条链也通**——因为 magpie 交出来
+     的就是标准形状，mbridge 原来的顶层 `answers` 解析已经够用。
+   - 回滚：把组换回 `cloudflare-jev/...` 并 `magpie plugin off cf-jev`。
