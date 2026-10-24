@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -306,5 +307,155 @@ func TestTheWindowKeepsTheLastTurns(t *testing.T) {
 	}
 	if v.Turns[len(v.Turns)-1].Session != "s-14" {
 		t.Fatalf("the newest turn is %q", v.Turns[len(v.Turns)-1].Session)
+	}
+}
+
+// TestTheWindowOnlyChangesTheAggregateSections: the window moves the
+// aggregate and nothing else. The process, the configuration, the live
+// cards and the decisions are "now": a reader who asks for 1d and a
+// reader who asks for 30d must see the same ones (SP14 §3.1/§3.2).
+func TestTheWindowOnlyChangesTheAggregateSections(t *testing.T) {
+	d, _, _ := testDeps(t, nil)
+	now := time.Now()
+	d.Windows = func(kind string) WindowView {
+		return AggregateWindow(d.Config, winEvents(now), nil, kind, now)
+	}
+	one := d.StatusPayload("1d")
+	thirty := d.StatusPayload("30d")
+
+	if kind := one["window"].(WindowView).Kind; kind != "1d" {
+		t.Fatalf("the 1d window says %v", kind)
+	}
+	if kind := thirty["window"].(WindowView).Kind; kind != "30d" {
+		t.Fatalf("the 30d window says %v", kind)
+	}
+	for key, a := range one {
+		if key == "window" {
+			continue
+		}
+		b, ok := thirty[key]
+		if !ok {
+			t.Errorf("the 30d payload lacks %q", key)
+			continue
+		}
+		if !reflect.DeepEqual(a, b) {
+			t.Errorf("%q moved with the window: %v vs %v", key, a, b)
+		}
+	}
+	// and the aggregate itself does move, or the comparison above is vacuous
+	if reflect.DeepEqual(one["window"], thirty["window"]) {
+		t.Error("the aggregate did not move with the window")
+	}
+}
+
+// tableByScore finds one score's calibration table.
+func tableByScore(tables []ScoreCalibration, score string) ScoreCalibration {
+	for _, t := range tables {
+		if t.Score == score {
+			return t
+		}
+	}
+	return ScoreCalibration{}
+}
+
+// totalN is how many turns a table holds: the sum of its bands.
+func totalN(sc ScoreCalibration) int {
+	n := 0
+	for _, b := range sc.Bands {
+		n += b.N
+	}
+	return n
+}
+
+// TestTheConfidenceMeanSkipsTheTurnsThatDidNotAsk: the tier score is
+// the classifier's confidence, so a turn that never asked it has no
+// sample in it. A turn with no confidence, and a turn whose pick the
+// router did not follow, are not zeros in the mean — they are not in it.
+// The dissatisfaction score is a different thing: a turn that did not
+// ask can still be dissatisfied, and that turn belongs in the
+// dissatisfied table (SP14 §E, SP7 §5.2).
+func TestTheConfidenceMeanSkipsTheTurnsThatDidNotAsk(t *testing.T) {
+	conf, dis := 0.9, 0.8
+	events := []Event{
+		// asked, and the router followed the pick: a sample of the tier score
+		{Kind: "decide", Session: "s1", Harness: "codex", Agent: "main", Arm: "router",
+			Tier: TierFast, ClassifiedTier: TierFast, Reason: "R6-adopt",
+			Classifier: "typesafe/jev-latest", TierConfidence: &conf},
+		// never asked: no confidence at all, so no sample
+		{Kind: "decide", Session: "s2", Harness: "codex", Agent: "main", Arm: "router",
+			Tier: TierBalanced, Reason: "R2-plan-mode", Source: "rule"},
+		// asked, but the pick was not followed: this confidence is not the
+		// score of a turn that ran on it
+		{Kind: "decide", Session: "s3", Harness: "codex", Agent: "main", Arm: "router",
+			Tier: TierFast, ClassifiedTier: TierPerformance, Reason: "R6-lower",
+			Classifier: "typesafe/jev-latest", TierConfidence: &conf},
+		// never asked, but the user was dissatisfied: this turn belongs in
+		// the dissatisfied table
+		{Kind: "decide", Session: "s4", Harness: "codex", Agent: "main", Arm: "router",
+			Tier: TierBalanced, Reason: "R2-plan-mode", Source: "rule", Dissatisfied: &dis},
+	}
+	tables := Calibrate(events, testConfig(""), CalibrateFilter{})
+	tier := tableByScore(tables, "tier")
+	diss := tableByScore(tables, "dissatisfied")
+
+	if n := totalN(tier); n != 1 {
+		t.Fatalf("the tier score holds %d turns, want only the asked-and-followed one: %v", n, tier.Bands)
+	}
+	if n := totalN(diss); n != 1 {
+		t.Fatalf("the dissatisfied score holds %d turns, want only the dissatisfied one: %v", n, diss.Bands)
+	}
+	// a table with one turn is not a long enough sample to draw a rate
+	// from: the page must say "—" instead of 0%
+	if !tier.SampleShort {
+		t.Error("a table with one turn claims to be long enough")
+	}
+}
+
+// TestTheCalibrationTableLeavesOutTheTurnsThatWereNotFollowed: a turn
+// the router took somewhere other than the classifier's pick is not a
+// sample of the tier score — the confidence belongs to a tier the turn
+// did not run on. R2-plan-mode never asked at all, R6-lower asked and
+// was talked out of the answer. Both stay out of every band of the tier
+// table, and both stay in the dissatisfied table (SP7 §5.2).
+func TestTheCalibrationTableLeavesOutTheTurnsThatWereNotFollowed(t *testing.T) {
+	conf, dis := 0.9, 0.9
+	events := []Event{
+		// followed the pick: the one turn the tier table may hold
+		{Kind: "decide", Session: "s1", Harness: "codex", Agent: "main", Arm: "router",
+			Tier: TierFast, ClassifiedTier: TierFast, Reason: "R6-adopt",
+			Classifier: "typesafe/jev-latest", TierConfidence: &conf},
+		// plan mode: never asked, so it has no confidence at all
+		{Kind: "decide", Session: "s2", Harness: "codex", Agent: "main", Arm: "router",
+			Tier: TierBalanced, Reason: "R2-plan-mode", Source: "rule", Dissatisfied: &dis},
+		// the router went below the classifier's pick
+		{Kind: "decide", Session: "s3", Harness: "codex", Agent: "main", Arm: "router",
+			Tier: TierFast, ClassifiedTier: TierPerformance, Reason: "R6-lower",
+			Classifier: "typesafe/jev-latest", TierConfidence: &conf, Dissatisfied: &dis},
+	}
+	tables := Calibrate(events, testConfig(""), CalibrateFilter{})
+	tier := tableByScore(tables, "tier")
+	diss := tableByScore(tables, "dissatisfied")
+
+	if n := totalN(tier); n != 1 {
+		t.Fatalf("the tier table holds %d turns, want only the followed one: %v", n, tier.Bands)
+	}
+	// and it is in the band its own confidence falls into, not in one of
+	// the others. The ladder is calBands: 0.95-1, 0.85-0.95, 0.7-0.85,
+	// 0.5-0.7, 0-0.5 — 0.9 is the second one. The band is named here and
+	// not taken from the code, or this test would agree with whatever
+	// the code says.
+	const wantBand = 1
+	for i, b := range tier.Bands {
+		want := 0
+		if i == wantBand {
+			want = 1
+		}
+		if b.N != want {
+			t.Errorf("tier band %d holds %d turns, want %d", i, b.N, want)
+		}
+	}
+	// the two turns that were not followed are still dissatisfied turns
+	if n := totalN(diss); n != 2 {
+		t.Fatalf("the dissatisfied table holds %d turns, want 2: %v", n, diss.Bands)
 	}
 }
