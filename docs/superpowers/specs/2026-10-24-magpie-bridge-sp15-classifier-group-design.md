@@ -160,3 +160,34 @@ Go（`go vet ./... && go test -race ./...`）：
 
    结论：**「init 建组 + 默认写 classifier」这一步有真机证据了**；**「用这个组真的分类出档位」
    还没有**，别把它当成端到端通了。
+
+6. **复核（同日第二遍，回答上面「这一条没查清」）**：
+
+   - **`not served now, skipped` 是 magpie CLI 的显示问题，不是它服务不了。** `magpie groups`
+     和 `magpie group <id>` 用的是「给 agent 的模型目录」（`provider.Served()`），而 decision
+     model 和只做决策的 provider 是**故意**排除在那个目录外的（`entriesOf` 跳过
+     `DecideOnly()` 的 provider 与 `isDecision` 的模型，`buildGroupEntries` 跳过 decision
+     组）。于是**任何** decision 组都会把每个成员显示成 `not served now, skipped`、组显示
+     `no member ready`——跟 Cloudflare 还是 TypeSafe、跟健康度都无关。证据：同一天
+     `~/.config/magpie/routing/2026-10-24.jsonl` 里 `group/mb-classifier` 被
+     `typesafe/jev-preview` 答出 200 共 16 次、`cloudflare-jev/@cf/cloudflare/clef` 1 次，
+     而 CLI 同时说四个成员都不服务。上游 `main` 的 `internal/cli/groups_cli.go` 同样没有
+     decision 组的分支，所以不是版本落后。
+   - **Cloudflare Workers AI 到 Jev 是通的**：`magpie provider test cloudflare-jev` →
+     `✓ decide 1038 ms · typesafe/jev`；直接 `POST /v1/systemone` 问
+     `cloudflare-jev/typesafe/jev` → 200（`jev-1.13.0`），`@cf/cloudflare/clef` → 200（0.7s）。
+   - **真正断的是分类链路：TypeSafe 慢 + 组的顺序。** 当时 `api.typesafe.ai` TLS 握手 17.8s，
+     偶发 `unexpected EOF` / `http2: client connection lost`，单次 30–36s；组存的顺序是
+     `typesafe/jev-preview → typesafe/jev-latest → cloudflare clef → clef-flash`，而
+     `/v1/systemone` 的组是**严格按序、单次尝试没有自己的超时**（`serveDecideTries` →
+     `postDecide` 只用调用方 ctx）。mbridge 的 `classify_timeout_ms`（当时 8000）一到就取消
+     整轮，快的 Cloudflare 成员轮不上——22:56 那条 cloudflare try 的错就是 `context canceled`。
+     TypeSafe「慢但成功」（9.8s / 18.8s）时不会 rest，所以每轮都先撞它；当天 37 次决策里
+     18 次 `R8-default` + 7 次 `R7-carry`。
+   - 要让这条链真通：把组里第一个成员换成够快的，例如
+     `magpie group set mb-classifier models=cloudflare-jev/@cf/cloudflare/clef,cloudflare-jev/@cf/cloudflare/clef-flash,typesafe/jev-latest routing=order`；
+     或把 `classify_timeout_ms` 提到 30000 以上（慢轮会明显变慢）。
+   - 附带一条：`cloudflare-jev` provider 的 `models` 只勾了 clef 两个，`typesafe/jev`
+     （Workers AI 上的 Jev 本体）只在 `pickedFrom` 里、没在 `models` 里，所以
+     `magpie provider models cloudflare-jev` 显示 `not shown typesafe/jev · not picked`；
+     要用得先 `magpie provider models cloudflare-jev +typesafe/jev`。

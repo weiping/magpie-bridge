@@ -241,7 +241,9 @@ magpie group mb-classifier                        # 看现在有哪些成员
 magpie group set mb-classifier models=typesafe/jev-latest routing=order
 ```
 
-成员后面标 `not served now` 是说 magpie 现在服务不了它——provider 没配好，或者那个模型列表拉不动（`magpie provider models <provider>` 会直接报网络错）。这时组等于没有可用成员（`magpie group mb-classifier` 显示 `no member ready`），分类每轮都失败，轮子落回默认档。
+成员后面标 `not served now, skipped`（组也显示 `no member ready`）对 **decision 组是常态，不代表 magpie 服务不了它**：`magpie group` 只拿「给 agent 的模型目录」去查成员，而 decision model 和只做决策的 provider 本来就被排除在那个目录外，所以 decision 组的每个成员都会被打上这个标签。组的实际可用性要真发一次请求看（或 `magpie provider test <provider>`），别信这行字。
+
+真正让分类失败的是组里**第一个成员慢**：`/v1/systemone` 的组按顺序逐个问，单次尝试没有自己的超时，头一个成员一直不答，mbridge 的 `classify_timeout_ms` 一到整轮就取消，后面的成员轮不上。所以把快的成员放前面，例如 `magpie group set mb-classifier models=cloudflare-jev/@cf/cloudflare/clef,cloudflare-jev/@cf/cloudflare/clef-flash,typesafe/jev-latest routing=order`。
 
 `router.json` 里写 `mb-classifier` 或 `group/mb-classifier` 都认；magpie 的原生规则（`magpie group rule add … classifier=`）只认 `group/mb-classifier` 这种带前缀的写法。
 
