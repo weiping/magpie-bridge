@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -146,6 +147,20 @@ func routerInit(args []string) error {
 		{"mb-perf", resolved[router.TierPerformance], "order"},
 		{"mbridge", []string{"group/mb-balanced", "group/mb-perf", "group/mb-fast"}, "order"},
 	}
+	// mb-classifier's member is hard-coded (not a "<p>/" preset member):
+	// without typesafe magpie refuses the group, so skip it and fall back
+	// to the local classifier sentinel.
+	classifierValue := "mb-classifier"
+	if slices.Contains(served, "typesafe/jev-latest") {
+		groups = append(groups, struct {
+			id      string
+			members []string
+			routing string
+		}{id: "mb-classifier", members: []string{"typesafe/jev-latest"}, routing: "order"})
+	} else {
+		fmt.Println(amber.Render("!"), "mb-classifier 跳过：magpie 没有 provider 服务 typesafe/jev-latest")
+		classifierValue = "local"
+	}
 	for _, g := range groups {
 		if !have[g.id] && len(g.members) == 0 {
 			return fmt.Errorf("group %s has no members (preset %q): add a provider serving one to magpie first", g.id, presetID)
@@ -165,7 +180,7 @@ func routerInit(args []string) error {
 		fmt.Println(green.Render("✓"), "group", g.id, "→", strings.Join(g.members, ", "))
 	}
 
-	// 2) router.json (§4.6), §4.1's default criteria, classifier local
+	// 2) router.json (§4.6), §4.1's default criteria, classifier mb-classifier
 	p := routerJSONPath()
 	keepJSON := false
 	if _, err := os.Stat(p); err == nil && !force {
@@ -184,7 +199,7 @@ func routerInit(args []string) error {
 			router.TierPerformance: {Group: "mb-perf", ClaudeAlias: "opus", Criteria: defaultCriteria[router.TierPerformance]},
 		},
 		DefaultTier:       router.TierBalanced,
-		Classifier:        "local",
+		Classifier:        classifierValue,
 		ClassifyTimeoutMs: 2500,
 		Thresholds: router.Thresholds{
 			TierMin: 0.4, DissatisfiedMin: 0.7,

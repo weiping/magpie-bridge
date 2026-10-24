@@ -249,21 +249,42 @@ func TestRouterInitNativeAddsRulesToAGroupWithNone(t *testing.T) {
 	}
 }
 
-// --force writes router.json's defaults back, and the classifier with them
-// ("local" again): the native groups made before stay as they are, and init
-// says the rules need a classifier again.
-func TestRouterInitNativeAfterForceWaitsForTheClassifier(t *testing.T) {
+// --force writes router.json's defaults back, classifier mb-classifier with
+// them (SP15: init's default classifier is the mb-classifier group now):
+// native init continues, and --force rebuilds the native groups.
+func TestRouterInitNativeAfterForceRebuildsWithClassifierGroup(t *testing.T) {
 	f := nativeHome(t)
 	initNative(t)
 	out := initNative(t, "--force")
-	if !strings.Contains(out, "classifier") {
-		t.Fatalf("init did not say the classifier is gone:\n%s", out)
+	if strings.Contains(out, "classifier is") {
+		t.Fatalf("init said the classifier is unconfigured (it defaults to mb-classifier):\n%s", out)
 	}
 	if n := len(rulesOf(f, "mb-native")); n != 4 {
 		t.Fatalf("rules after --force: %d", n)
 	}
-	if n := countCalls(f, "group", "add", "mb-native"); n != 1 {
-		t.Fatalf("mb-native added %d times", n)
+	if n := countCalls(f, "group", "add", "mb-native"); n != 2 {
+		t.Fatalf("mb-native added %d times (--force rebuilds it)", n)
+	}
+	cfg, err := router.Load(routerJSONPath(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Classifier != "mb-classifier" {
+		t.Fatalf("classifier after --force: %q", cfg.Classifier)
+	}
+}
+
+// A classifier left unconfigured ("local") still stops native init: the
+// rules need a model magpie can ask, and mb-native is not made.
+func TestRouterInitNativeSkipsWhenClassifierIsLocal(t *testing.T) {
+	f := nativeHome(t)
+	editRouterJSON(t, func(m map[string]any) { m["classifier"] = "local" })
+	out := initNative(t)
+	if !strings.Contains(out, "classifier") {
+		t.Fatalf("init did not say the classifier is unconfigured:\n%s", out)
+	}
+	if _, ok := groupMembers(f, "mb-native"); ok {
+		t.Fatal("mb-native made without a classifier")
 	}
 }
 

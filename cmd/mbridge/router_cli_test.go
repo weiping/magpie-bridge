@@ -35,8 +35,8 @@ func TestRouterInitCnWritesGroupsAndConfig(t *testing.T) {
 	if err := routerInit([]string{"--preset", "cn", "--groups-only"}); err != nil {
 		t.Fatal(err)
 	}
-	// four groups written
-	for _, id := range []string{"mb-fast", "mb-balanced", "mb-perf", "mbridge"} {
+	// five groups written
+	for _, id := range []string{"mb-fast", "mb-balanced", "mb-perf", "mbridge", "mb-classifier"} {
 		if m, ok := groupMembers(f, id); !ok || len(m) == 0 {
 			t.Fatalf("group %s missing or empty", id)
 		}
@@ -44,14 +44,18 @@ func TestRouterInitCnWritesGroupsAndConfig(t *testing.T) {
 	if !f.called("group", "add", "mbridge", "models=group/mb-balanced,group/mb-perf,group/mb-fast", "routing=order") {
 		t.Fatalf("router group not made through magpie's CLI: %v", f.calls)
 	}
+	if !f.called("group", "add", "mb-classifier", "models=typesafe/jev-latest", "routing=order") {
+		t.Fatalf("classifier group not made through magpie's CLI: %v", f.calls)
+	}
 	// routing strategy per tier: fast=usage (most allowance left first),
 	// balanced=pace (most week left per hour), perf=order (strongest
 	// first), mbridge=order (the router group that picks a tier).
 	wantRouting := map[string]string{
-		"mb-fast":     "usage",
-		"mb-balanced": "pace",
-		"mb-perf":     "order",
-		"mbridge":     "order",
+		"mb-fast":       "usage",
+		"mb-balanced":   "pace",
+		"mb-perf":       "order",
+		"mbridge":       "order",
+		"mb-classifier": "order",
 	}
 	for id, routing := range wantRouting {
 		found := false
@@ -80,7 +84,7 @@ func TestRouterInitCnWritesGroupsAndConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Tiers[router.TierFast].Group != "mb-fast" || cfg.Classifier != "local" || cfg.ClassifyTimeoutMs != 2500 {
+	if cfg.Tiers[router.TierFast].Group != "mb-fast" || cfg.Classifier != "mb-classifier" || cfg.ClassifyTimeoutMs != 2500 {
 		t.Fatalf("cfg: %+v", cfg.Tiers[router.TierFast])
 	}
 	if cfg.Tiers[router.TierFast].Criteria == "" {
@@ -700,5 +704,29 @@ func TestRouterInitKeptGroupIsNotBorrowedInto(t *testing.T) {
 	}
 	if m, _ := groupMembers(f, "mb-perf"); strings.Join(m, ",") != "deepseek/deepseek-v4-pro" {
 		t.Fatalf("mb-perf changed: %v", m)
+	}
+}
+
+func TestRouterInitSkipsClassifierGroupWhenTypesafeMissing(t *testing.T) {
+	// 除 typesafe 外的 servedDeepSeekKimiCN：tier 组照常建，只有分类器组缺成员。
+	served := make([]string, 0, len(servedDeepSeekKimiCN))
+	for _, s := range servedDeepSeekKimiCN {
+		if s != "typesafe/jev-latest" {
+			served = append(served, s)
+		}
+	}
+	f := withFakeMagpie(t, served...)
+	if err := routerInit([]string{"--preset", "cn", "--groups-only"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := groupMembers(f, "mb-classifier"); ok {
+		t.Fatal("mb-classifier 不该在 typesafe 没配时建")
+	}
+	cfg, err := router.Load(routerJSONPath(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Classifier != "local" {
+		t.Fatalf("classifier 应回退 local，got %q", cfg.Classifier)
 	}
 }
