@@ -39,6 +39,34 @@ func DecideAsk(via, model string, body []byte) []byte {
 	return body
 }
 
+// cloudflareAnswer is Workers AI's answer as System One gives it: out of
+// the envelopes Cloudflare wraps a run in. A Clef answers as it is asked
+// (one envelope), but the Jev Workers AI serves answers in the envelope
+// of a System One answer too, so a Jev's answer comes in two (ARNO on
+// Discord: cloudflare-jev's Jev answered, and nothing read the answers
+// out of it). The envelope is peeled while what is left holds another
+// and no answers of its own, so the answer is the same one a Clef's is:
+// the answers, at the top.
+func cloudflareAnswer(b []byte) []byte {
+	for range 4 { // Cloudflare's own, the Jev's, and room for two more
+		var env struct {
+			Answers json.RawMessage `json:"answers"`
+			Result  json.RawMessage `json:"result"`
+		}
+		if json.Unmarshal(b, &env) != nil {
+			return b
+		}
+		if len(env.Answers) > 0 { // the answer is here already
+			return b
+		}
+		if len(env.Result) == 0 || env.Result[0] != '{' {
+			return b
+		}
+		b = env.Result
+	}
+	return b
+}
+
 // DecideAnswer is a gateway's answer as System One gives it: out of
 // Cloudflare's envelope, or, from Vercel's evaluation models (its TypeSafe
 // API answers as System One does), a boolean's probability as a
@@ -47,12 +75,7 @@ func DecideAsk(via, model string, body []byte) []byte {
 func DecideAnswer(via string, b []byte) []byte {
 	switch via {
 	case ViaCloudflare:
-		var env struct {
-			Result json.RawMessage `json:"result"`
-		}
-		if json.Unmarshal(b, &env) == nil && len(env.Result) > 0 && env.Result[0] == '{' {
-			return env.Result
-		}
+		return cloudflareAnswer(b)
 	case ViaVercelEval:
 		var v struct {
 			Model   string                    `json:"model"`
