@@ -672,3 +672,15 @@ func TestClassifyTimeoutThroughMagpieIsATimeout(t *testing.T) {
 		t.Fatalf("classify_error %q", ev.ClassifyError)
 	}
 }
+
+func TestClassifySourceGroupIsJev(t *testing.T) {
+	if classifySource("mb-classifier") != "jev" {
+		t.Errorf("classifySource(mb-classifier) = %q, want jev", classifySource("mb-classifier"))
+	}
+	if classifySource("typesafe/jev-latest") != "jev" {
+		t.Errorf("classifySource(typesafe/jev-latest) = %q, want jev", classifySource("typesafe/jev-latest"))
+	}
+	if classifySource("deepseek/deepseek-chat") != "llm" {
+		t.Errorf("classifySource(deepseek/deepseek-chat) = %q, want llm", classifySource("deepseek/deepseek-chat"))
+	}
+}

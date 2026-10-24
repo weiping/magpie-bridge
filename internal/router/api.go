@@ -345,7 +345,7 @@ func generatedTurnID() string {
 
 // classifySource names where a verdict came from (§6.4's source field).
 func classifySource(classifier string) string {
-	if classifier == "typesafe/jev-latest" {
+	if classifier == jevClassifier || isClassifierGroup(classifier) {
 		return "jev"
 	}
 	return "llm"

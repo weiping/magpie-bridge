@@ -14,6 +14,17 @@ import (
 // System One request (§5.3).
 const jevClassifier = "typesafe/jev-latest"
 
+// isClassifierGroup reports whether classifier names a magpie routing group
+// rather than a model id: a "group/<id>" ref, or a bare group name (no
+// "/"). "local" and "" are the "unconfigured" sentinels, not groups (they
+// have no "/", so not excluded they would misread as one).
+func isClassifierGroup(c string) bool {
+	if c == "" || c == "local" {
+		return false
+	}
+	return strings.HasPrefix(c, "group/") || !strings.Contains(c, "/")
+}
+
 // tierOrder is the order the plain-model prompt numbers tiers in (§5.4).
 var tierOrder = []Tier{TierFast, TierBalanced, TierPerformance}
 
@@ -69,7 +80,7 @@ type classifier struct {
 // §5.4). ask sends one request: it receives the model id and the JSON
 // body string, returns the raw response body text.
 func NewClassifier(cfg Config, ask func(ctx context.Context, model, body string) (string, error)) Classifier {
-	return &classifier{cfg: cfg, ask: ask, jev: cfg.Classifier == jevClassifier,
+	return &classifier{cfg: cfg, ask: ask, jev: cfg.Classifier == jevClassifier || isClassifierGroup(cfg.Classifier),
 		noSchema: map[string]bool{}, schemaBad: map[string]int{}}
 }
 

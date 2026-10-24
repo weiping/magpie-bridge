@@ -111,3 +111,26 @@ func TestAskViaClassifierParityWithFork(t *testing.T) {
 		t.Fatalf("direct %+v, via magpie %+v", direct, viaHTTP)
 	}
 }
+
+func TestAskViaRoutesGroupToSystemOne(t *testing.T) {
+	f := &fakeMagpie{jev: `{"answers":{"tier":{"choice":"performance","confidence":0.9},"dissatisfied":{"noul":0.1}}}`}
+	c := f.start(t)
+	v, err := NewClassifier(testConfig("mb-classifier"), AskVia(c)).Classify(context.Background(),
+		Question{Message: "redesign the storage layer", Criteria: testCriteria, PreviousTier: TierBalanced})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Tier != TierPerformance {
+		t.Fatalf("verdict %+v", v)
+	}
+	if len(f.paths) != 1 || f.paths[0] != "/v1/systemone" {
+		t.Fatalf("paths %v", f.paths)
+	}
+	var body struct {
+		Model string `json:"model"`
+	}
+	json.Unmarshal([]byte(f.bodies[0]), &body)
+	if body.Model != "group/mb-classifier" {
+		t.Fatalf("model in body %q", body.Model)
+	}
+}

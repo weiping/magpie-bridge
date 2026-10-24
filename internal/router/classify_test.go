@@ -568,3 +568,16 @@ func TestPlainPreviousAnswerIsFenced(t *testing.T) {
 		t.Fatalf("no note that the answer is context: %q", part)
 	}
 }
+
+func TestIsClassifierGroup(t *testing.T) {
+	for _, c := range []string{"group/mb-classifier", "mb-classifier", "mbridge"} {
+		if !isClassifierGroup(c) {
+			t.Errorf("isClassifierGroup(%q) = false, want true", c)
+		}
+	}
+	for _, c := range []string{"", "local", "typesafe/jev-latest", "openrouter/anthropic/claude-sonnet-5.5"} {
+		if isClassifierGroup(c) {
+			t.Errorf("isClassifierGroup(%q) = true, want false", c)
+		}
+	}
+}
