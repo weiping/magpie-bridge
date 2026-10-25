@@ -251,10 +251,10 @@ magpie group set mb-classifier models=typesafe/jev-latest routing=order
 
 magpie 自带的 `cloudflare-jev` 有个信封 bug：Workers AI 的回答套了两层（Cloudflare 的 `result` + Jev 自己的 `state`/`result`），magpie 只拆一层，于是 `/v1/systemone` 回来的东西顶层没有 `answers`，分类每轮都失败（`router: jev chose "", not a tier`）。
 
-绕法是自带的插件 `cf-jev`（`~/workspace/dev/cf-jev-plugin`）：它在自己的 `fetch` 里把两层都拆掉再交回 magpie，所以 magpie 和它的客户端看到的都是标准 System One 答案。
+绕法是自带的插件 `cf-jev`（npm：`@weiping/magpie-cf-jev`，源码在 `~/workspace/dev/cf-jev-plugin`）：它在自己的 `fetch` 里把两层都拆掉再交回 magpie，所以 magpie 和它的客户端看到的都是标准 System One 答案。
 
 ```sh
-magpie plugin add ~/workspace/dev/cf-jev-plugin
+magpie plugin add @weiping/magpie-cf-jev@latest
 magpie plugin login cf-jev          # Cloudflare token；只做 Workers AI 的 token 粘 "<account id>:<token>"
 magpie provider test cf-jev         # ✓ decide
 magpie group set mb-classifier \

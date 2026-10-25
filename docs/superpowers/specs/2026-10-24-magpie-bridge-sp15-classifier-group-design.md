@@ -232,7 +232,7 @@ Go（`go vet ./... && go test -race ./...`）：
    `/v1/bridge/turn` 四条全部 `R6-adopt source=jev`，`router.jsonl` 里最后一条
    `jev chose ""` 的错误在修复之前。
 
-8. **自用插件绕过上游 bug（`~/workspace/dev/cf-jev-plugin`，2026-10-25）**
+8. **自用插件绕过上游 bug（`@weiping/magpie-cf-jev`，源码 `~/workspace/dev/cf-jev-plugin`，2026-10-25）**
 
    上游 PR 因为账号没有 `CreatePullRequest` 权限开不出来（`yetone/magpie` 只读；
    同一 token 在自己的仓库能开 PR，所以不是 fork 或分支的问题），于是改成插件方案：
@@ -249,3 +249,10 @@ Go（`go vet ./... && go test -race ./...`）：
    - 意义：**即使 mbridge 不带自身那两处 parsing 修复，这条链也通**——因为 magpie 交出来
      的就是标准形状，mbridge 原来的顶层 `answers` 解析已经够用。
    - 回滚：把组换回 `cloudflare-jev/...` 并 `magpie plugin off cf-jev`。
+   - 已发布到 npm：`@weiping/magpie-cf-jev@0.1.0`（scoped，public）。magpie 里装的是
+     `@weiping/magpie-cf-jev@latest`，本地目录那份 `magpie plugin rm` 掉了（同一个
+     provider id 只能一个插件服务它）。npm 新包首次 publish 后 registry 元数据会
+     “packaged 处理中” 几分钟（写入已成功——重发会报 “cannot publish over 0.1.0”，
+     但 `npm view` 先 404），之后正常。装 npm 版后复测：`provider test` ✓ decide 1452ms，
+     `/v1/systemone` 的模型与 `group/mb-classifier` 均 `keys=[model,answers,usage]`，
+     daemon 三轮均 `R6-adopt/R6-keep source=jev`。
