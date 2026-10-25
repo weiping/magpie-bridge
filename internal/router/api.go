@@ -322,6 +322,7 @@ func (d *Deps) LiveCards(window time.Duration) []LiveCard {
 			card.Harness = ev.Harness
 			card.Agent = ev.Agent
 			card.Reason = ev.Reason
+			card.ClassifiedTier = ev.ClassifiedTier
 			card.TierConfidence = ev.TierConfidence
 			card.LatencyMs = ev.LatencyMs
 			card.ClassifyMs = ev.ClassifyMs

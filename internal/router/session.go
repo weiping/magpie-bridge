@@ -269,6 +269,7 @@ type LiveCard struct {
 	Agent          string   `json:"agent"`
 	Group          string   `json:"group"`
 	Reason         string   `json:"reason"`
+	ClassifiedTier Tier     `json:"classified_tier,omitempty"`
 	TierConfidence *float64 `json:"tier_confidence"`
 	LatencyMs      int      `json:"latency_ms"`
 	ClassifyMs     int      `json:"classify_ms"`

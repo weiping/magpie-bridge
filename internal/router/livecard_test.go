@@ -38,6 +38,9 @@ func TestTheCardTakesTheHarnessFromTheLastDecide(t *testing.T) {
 	if c.Tier != TierBalanced {
 		t.Fatalf("tier %q", c.Tier)
 	}
+	if c.ClassifiedTier != TierBalanced {
+		t.Fatalf("classified tier %q", c.ClassifiedTier)
+	}
 }
 
 // TestTheCardSaysUnknownWhenTheEventIsGone: a session whose event has

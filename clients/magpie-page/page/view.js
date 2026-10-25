@@ -298,10 +298,14 @@ function liveCard(c) {
   if (c.lower_streak) row4.push("↓" + c.lower_streak);
   if (c.pinned) row4.push("📌");
   const tier = String(c.tier || "?");
+  const row1Tier = [tier, " ", tierChip(tier)];
+  if (c.classified_tier && c.classified_tier !== c.tier) {
+    row1Tier.push(" ", el("span", { class: "chip differs", title: T().advised, text: c.classified_tier }));
+  }
   return el("div", { class: "card" }, [
     el("div", { class: "row1" }, [
       el("span", { text: (c.harness || T().unknown) + " · " + (c.agent || "") }),
-      el("span", {}, [tier, " ", tierChip(tier)]),
+      el("span", {}, row1Tier),
     ]),
     row2,
     el("div", { class: "row3 muted", text: row3.join(" · ") }),
@@ -577,10 +581,14 @@ function calibrationTable(c) {
       root.appendChild(el("h3", { class: "muted", text: t.justWent }));
       const cards = el("div", { class: "cards" });
       for (const ev of turns.slice(0, 4)) {
+        const differs = ev.classified_tier && ev.classified_tier !== ev.tier;
         cards.appendChild(el("div", { class: "card" }, [
           el("div", { class: "row1" }, [
             el("span", { text: (ev.harness || t.unknown) + " · " + (ev.agent || "") }),
-            el("span", {}, [ev.tier, " ", tierChip(ev.tier || "?")]),
+            el("span", {}, [
+              ev.tier, " ", tierChip(ev.tier || "?"),
+              ...(differs ? [" ", el("span", { class: "chip differs", title: t.advised, text: ev.classified_tier })] : []),
+            ]),
           ]),
           el("div", { class: "row2", text: clock(ev.t) + " · " + String(ev.session || "").slice(0, 8) }),
           el("div", { class: "row3 muted", text: reasonText(ev.reason) }),
