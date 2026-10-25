@@ -118,6 +118,9 @@ func TestJevClassifyThroughARelaysEnvelope(t *testing.T) {
 			if v.Tier != TierFast || v.TierConfidence != 1 {
 				t.Fatalf("verdict: %+v", v)
 			}
+			if v.Source != "mb-classifier" {
+				t.Fatalf("source: %q, want mb-classifier", v.Source)
+			}
 		})
 	}
 }

@@ -243,7 +243,7 @@ func (c *classifier) classifyJev(ctx context.Context, q Question) (*Verdict, err
 		TierConfidence: parsed.Tier.Confidence,
 		Dissatisfied:   parsed.Dissatisfied.Noul,
 		Compact:        parsed.Compact.Noul,
-		Source:         jevClassifier,
+		Source:         c.cfg.Classifier,
 	}
 	if v.Compact == 0 && IsCompactPrompt(q.Message) {
 		v.Compact = 1.0
