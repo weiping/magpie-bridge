@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // logLine is a line magpie's plugins log to the CLI's output in Go's log
@@ -14,7 +15,11 @@ import (
 var logLine = regexp.MustCompile(`(?m)^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} .*(\r?\n|$)`)
 
 func (c *Client) cli(ctx context.Context, args ...string) ([]byte, error) {
+	started := time.Now()
 	out, err := c.Run(ctx, c.Bin, args...)
+	// magpie's CLI leaves its plugin host behind (see reapHosts): the
+	// orphans of this call go now, while they are known to be ours
+	reapHosts(started)
 	out = logLine.ReplaceAll(out, nil)
 	if err != nil {
 		msg := strings.TrimSpace(string(out))

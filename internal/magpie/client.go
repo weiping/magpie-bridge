@@ -187,3 +187,27 @@ func (c *Client) Health(ctx context.Context) error {
 	_, err := c.do(ctx, http.MethodGet, "/v1", nil)
 	return err
 }
+
+// Info is magpie's version, read from its gateway's /v1 answer, and whether
+// it is there at all. It is the HTTP door rather than the CLI (`magpie
+// version`) on purpose: magpie's CLI starts its plugin host, and a host
+// whose work never settles outlives the CLI that started it — one per poll
+// of a status page, which is thousands of orphan processes a day (measured
+// 2026-10-25: 595 hosts, 7 GB, swap full, and the routing classifier
+// timing out behind them).
+func (c *Client) Info(ctx context.Context) (string, bool) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	out, err := c.do(ctx, http.MethodGet, "/v1", nil)
+	if err != nil {
+		return "", false
+	}
+	var r struct {
+		Name    string `json:"name"`
+		Version string `json:"version"`
+	}
+	if json.Unmarshal(out, &r) != nil || r.Name != "magpie" {
+		return "", false
+	}
+	return r.Version, true
+}

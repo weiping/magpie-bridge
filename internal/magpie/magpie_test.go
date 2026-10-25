@@ -412,3 +412,25 @@ func TestGroupReadsHowManyRules(t *testing.T) {
 		t.Fatalf("%+v %v", g, err)
 	}
 }
+
+// TestInfoReadsTheGatewayNotTheCLI: the version comes from /v1's own answer,
+// so the daemon's status page never starts magpie's plugin host (a host whose
+// work never settles outlives its CLI: one per poll).
+func TestInfoReadsTheGatewayNotTheCLI(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1" {
+			http.NotFound(w, r)
+			return
+		}
+		io.WriteString(w, `{"name":"magpie","version":"0.1.1471","models":88}`)
+	}))
+	defer srv.Close()
+	c := New(srv.URL)
+	c.Run = func(context.Context, string, ...string) ([]byte, error) {
+		t.Fatal("Info ran the CLI")
+		return nil, nil
+	}
+	if v, ok := c.Info(context.Background()); !ok || v != "0.1.1471" {
+		t.Fatalf("Info = %q %v", v, ok)
+	}
+}

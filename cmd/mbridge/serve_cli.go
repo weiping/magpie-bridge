@@ -177,12 +177,7 @@ func serviceStatus(ctx context.Context) router.ServiceStatus {
 // magpieInfo is magpie's version and whether it answers.
 func magpieInfo(url string) func(context.Context) (string, bool) {
 	return func(ctx context.Context) (string, bool) {
-		c := magpie.New(url)
-		if err := c.Health(ctx); err != nil {
-			return "", false
-		}
-		v, _ := c.Version(ctx)
-		return v, true
+		return magpie.New(url).Info(ctx)
 	}
 }
 
