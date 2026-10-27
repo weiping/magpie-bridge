@@ -23,7 +23,7 @@ const REFRESH_MS = 5000;
 // built the first time, so a stale tab shows an old version here (SP14 §2:
 // the plugin page is a one-way ticket — toggle the plugin off and on to
 // get a new frame).
-const PAGE_VERSION = "0.1.4";
+const PAGE_VERSION = "0.1.6";
 
 const TEXT = {
   en: {
@@ -298,7 +298,7 @@ function liveCard(c) {
   if (c.lower_streak) row4.push("↓" + c.lower_streak);
   if (c.pinned) row4.push("📌");
   const tier = String(c.tier || "?");
-  const row1Tier = [tier, " ", tierChip(tier)];
+  const row1Tier = [tierChip(tier)];
   if (c.classified_tier && c.classified_tier !== c.tier) {
     row1Tier.push(" ", el("span", { class: "chip differs", title: T().advised, text: c.classified_tier }));
   }
@@ -586,7 +586,7 @@ function calibrationTable(c) {
           el("div", { class: "row1" }, [
             el("span", { text: (ev.harness || t.unknown) + " · " + (ev.agent || "") }),
             el("span", {}, [
-              ev.tier, " ", tierChip(ev.tier || "?"),
+              tierChip(ev.tier || "?"),
               ...(differs ? [" ", el("span", { class: "chip differs", title: t.advised, text: ev.classified_tier })] : []),
             ]),
           ]),

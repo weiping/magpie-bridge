@@ -388,7 +388,7 @@ function liveCard(c) {
   if (c.lower_streak) row4.push("↓" + c.lower_streak);
   if (c.pinned) row4.push("📌");
   const tier = String(c.tier || "?");
-  const row1Tier = [tier, " ", tierChip(tier)];
+  const row1Tier = [tierChip(tier)];
   if (c.classified_tier && c.classified_tier !== c.tier) {
     row1Tier.push(" ", el("span", { class: "chip differs", title: T().advised, text: c.classified_tier }));
   }
@@ -549,7 +549,7 @@ function render(data) {
           el("div", { class: "row1" }, [
             el("span", { text: (ev.harness || t.unknown) + " · " + (ev.agent || "") }),
             el("span", {}, [
-              ev.tier, " ", tierChip(ev.tier || "?"),
+              tierChip(ev.tier || "?"),
               ...(differs ? [" ", el("span", { class: "chip differs", title: t.advised, text: ev.classified_tier })] : []),
             ]),
           ]),
