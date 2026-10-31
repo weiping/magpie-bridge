@@ -1,8 +1,13 @@
 {
   "name": "@weiping/openclaw-mbridge",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "OpenClaw plugin: route each turn through mbridge tiers (fast / balanced / performance).",
   "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "bun build ./index.ts --outdir ./dist --target node --format esm --external 'openclaw/*'",
+    "prepublishOnly": "bun build ./index.ts --outdir ./dist --target node --format esm --external 'openclaw/*'"
+  },
   "license": "MIT",
   "keywords": ["openclaw", "openclaw-plugin", "mbridge", "magpie", "model-router"],
   "publishConfig": {
@@ -23,5 +28,5 @@
       "minGatewayVersion": "2026.10.2"
     }
   },
-  "files": ["index.ts", "mbridge-client.ts", "routing.ts", "openclaw.plugin.json", "README.md"]
+  "files": ["dist", "index.ts", "mbridge-client.ts", "routing.ts", "openclaw.plugin.json", "README.md"]
 }
