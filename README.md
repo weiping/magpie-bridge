@@ -22,6 +22,7 @@ Magpie Bridge 和官方 [magpie](https://github.com/yetone/magpie) 并排运行�
 | Claude Code 插件 `magpie-bridge`（`clients/claude-code/`） | Claude Code | 0.3.3，默认连 3426 |
 | Pi 包 `@weiping/pi-magpie-bridge`（`clients/pi/`） | Pi | 0.3.1，自报工具统计 |
 | Codex 插件 `magpie-bridge-codex`（`clients/codex/`） | Codex | 0.2.1，配合 `codex -p mbridge` |
+| OpenClaw 插件 `@weiping/openclaw-mbridge`（`clients/openclaw/`） | OpenClaw | 0.1.0，逐轮改写模型 |
 | 状态页 `http://127.0.0.1:3426/status`（mbridge 自己服务） | 所有 Agent | 进程、生效中的配置、正在选档的会话、分类器、分档统计 |
 | magpie 页面插件 `clients/magpie-page/` | magpie 窗口 | magpie 记下的用量速览 |
 | 报表、复核与校准（`mbridge router report`、`calibrate`） | 所有 Agent | 成本取 magpie 的 `usage --csv` |
@@ -81,6 +82,9 @@ Magpie Bridge 和官方 [magpie](https://github.com/yetone/magpie) 并排运行�
 
    # Pi
    pi install npm:@weiping/pi-magpie-bridge                   # 升级：pi update
+
+   # OpenClaw
+   openclaw plugins install @weiping/openclaw-mbridge
    ```
 
 Claude Code 和 Pi 的请求直接发给 magpie，插件逐轮把模型切到 `group/mb-<档>`；Codex 的请求先到 mbridge，代理按轮把 `group/mbridge` 改写成某一档再转给 magpie。没有插件的 Agent 把 base URL 设成 `http://127.0.0.1:3426/v1`、模型设成 `group/mbridge`，就是网关模式。
@@ -92,6 +96,7 @@ Claude Code 和 Pi 的请求直接发给 magpie，插件逐轮把模型切到 `g
 | Claude Code | `.claude/settings.json`：`{"model": "group/mbridge[1m]"}`；子代理跑在 `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL` 上，要一致的话在项目的 `env` 里一起覆盖 |
 | Codex | `codex -p mbridge`，或项目的 `.codex/config.toml` 写 `model = "group/mbridge"` |
 | Pi | 项目的 `.pi/settings.json`：`defaultProvider` 写 `magpie`、`defaultModel` 写 `group/mbridge`（项目要先被 Pi 信任，这个文件才会加载） |
+| OpenClaw | `openclaw.json`：`agents.defaults.model.primary` 写 `magpie/group/mbridge` |
 
 其他命令：
 

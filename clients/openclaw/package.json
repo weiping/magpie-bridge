@@ -1,0 +1,27 @@
+{
+  "name": "@weiping/openclaw-mbridge",
+  "version": "0.1.0",
+  "description": "OpenClaw plugin: route each turn through mbridge tiers (fast / balanced / performance).",
+  "type": "module",
+  "license": "MIT",
+  "keywords": ["openclaw", "openclaw-plugin", "mbridge", "magpie", "model-router"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/weiping/magpie-bridge.git",
+    "directory": "clients/openclaw"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.10.2"
+  },
+  "openclaw": {
+    "extensions": ["./index.ts"],
+    "compat": {
+      "pluginApi": ">=2026.10.2",
+      "minGatewayVersion": "2026.10.2"
+    }
+  },
+  "files": ["index.ts", "mbridge-client.ts", "routing.ts", "openclaw.plugin.json", "README.md"]
+}

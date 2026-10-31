@@ -15,3 +15,5 @@ memory/
 
 node_modules/
 mbridge.app/
+.codegraph/
+.ua/

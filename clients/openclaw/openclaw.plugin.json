@@ -1,0 +1,43 @@
+{
+  "id": "mbridge-openclaw",
+  "name": "Magpie Bridge routing",
+  "description": "Per-turn fast/balanced/performance routing for OpenClaw via mbridge (POST /v1/bridge/turn).",
+  "categories": ["developer-tools"],
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "mbridgeUrl": {
+        "type": "string",
+        "description": "mbridge listen URL (no path)",
+        "default": "http://127.0.0.1:3426"
+      },
+      "providerId": {
+        "type": "string",
+        "description": "OpenClaw magpie provider id",
+        "default": "magpie"
+      },
+      "routingModelId": {
+        "type": "string",
+        "description": "Only auto-route when the session model is this routing group (SP13)",
+        "default": "group/mbridge"
+      }
+    }
+  },
+  "uiHints": {
+    "mbridgeUrl": {
+      "label": "mbridge URL",
+      "placeholder": "http://127.0.0.1:3426"
+    },
+    "providerId": {
+      "label": "Magpie provider id"
+    },
+    "routingModelId": {
+      "label": "Routing model id",
+      "help": "Set the agent primary model to this id (e.g. magpie/group/mbridge) to enable per-turn tier picks."
+    }
+  }
+}
