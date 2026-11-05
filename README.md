@@ -195,7 +195,7 @@ mbridge router check                  # 检查分组是否齐全、上下文窗�
 | `tiers.<档>.criteria` | — | 交给分类器的选档标准（自然语言） |
 | `default_tier` | `balanced` | 分类失败或不可信时的落档（规则 R8） |
 | `classifier` | `mb-classifier` | 分类器：magpie 路由组名（`mb-classifier`，见下节）、`typesafe/jev-latest`，或任意 `provider/model`。普通模型用结构化输出给出档位置信度与不满分数（实测 Kimi 支持）；厂商拒绝 `response_format` 时（如 DeepSeek 返回 400）退回只回编号的提示词，此时置信度按回答是否合法记 1/0，事件里的 `classifier` 标 `#plain` |
-| `classify_timeout_ms` | `2500` | 分类超时；超时该轮落默认档，下一轮补偿。三个 Agent 插件等 `/turn` 的时间随它走：本值加 500ms，限定在 1500–8000ms 之间 |
+| `classify_timeout_ms` | `2500` | 分类超时；超时该轮落默认档，下一轮补偿。三个 Agent 插件等 `/turn` 的时间随它走：本值加 500ms，限定在 1500–30000ms 之间（Claude Code 插件的 hook 10s 就停，它的窗口仍是 1500–8000ms） |
 | `thresholds.tier_min` | `0.4` | 分类结果的最低置信度（R5） |
 | `thresholds.dissatisfied_min` | `0.7` | 「用户在说上一轮不对」的判定阈值（R3 升档） |
 | `thresholds.review_min` | `0.7` | 轮末复核判「没解决」的阈值（R3 升档，`review.mode` 非 `off` 时才有用） |

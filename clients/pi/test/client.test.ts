@@ -70,12 +70,28 @@ describe("MbridgeClient", () => {
     await vi.advanceTimersByTimeAsync(1600)
     await race
     vi.useRealTimers()
+    // mbridge is up; it just did not answer in time
+    expect(c.lastFailure).toBe("timeout")
+  })
+
+  it("turn() says unreachable when the gateway is not there", async () => {
+    fetchMock.mockRejectedValueOnce(new Error("ECONNREFUSED"))
+    const c = new MbridgeClient("http://gw")
+    expect(await c.turn({ session: "s1", prompt: "hi" })).toBeNull()
+    expect(c.lastFailure).toBe("unreachable")
+  })
+
+  it("turn() says error when the gateway answers with a failure", async () => {
+    fetchMock.mockResolvedValueOnce(new Response("boom", { status: 500 }))
+    const c = new MbridgeClient("http://gw")
+    expect(await c.turn({ session: "s1", prompt: "hi" })).toBeNull()
+    expect(c.lastFailure).toBe("error")
   })
 
   // SP10: mbridge says how long a turn may take; turn() waits that long
   for (const c of [
     { name: "3000 waits for a /turn that answers at 2000 ms", router: { turn_budget_ms: 3000 }, answerAt: 2000, want: "fast" },
-    { name: "past 8000 is held to 8000", router: { turn_budget_ms: 60000 }, answerAt: 8500, want: null },
+    { name: "past 25000 is held to 25000", router: { turn_budget_ms: 60000 }, answerAt: 26000, want: null },
     { name: "under 1500 is held to 1500", router: { turn_budget_ms: 100 }, answerAt: 1000, want: "fast" },
     { name: "a router without it keeps 1500", router: {}, answerAt: 2000, want: null },
   ]) {

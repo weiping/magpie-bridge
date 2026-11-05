@@ -534,6 +534,25 @@ describe("mbridge extension (SP8)", () => {
     await f.fire("before_agent_start", { type: "before_agent_start", prompt: "two" })
     expect(statuses[statuses.length - 1]).toEqual(["mbridge", undefined])
   })
+
+  it("a slow mbridge says the classifier timed out, not that mbridge is down", async () => {
+    const f = fakePi()
+    const statuses: Array<[string, string | undefined]> = []
+    ;(f.ctx as any).ui = { setStatus: (k: string, t: string | undefined) => statuses.push([k, t]) }
+    fetchMock.mockImplementation(async (url: string) => {
+      if (String(url).endsWith("/v1/bridge/router")) return new Response(JSON.stringify({ turn_budget_ms: 3000 }), { status: 200 })
+      return new Promise(() => {}) // mbridge takes the call and never answers
+    })
+    ;(await import("../extensions/mbridge.js")).default(f.pi as never)
+    f.fire("session_start", { type: "session_start", reason: "startup" })
+    vi.useFakeTimers()
+    const turn = f.fire("before_agent_start", { type: "before_agent_start", prompt: "one" })
+    await vi.advanceTimersByTimeAsync(3200)
+    await turn
+    vi.useRealTimers()
+    expect(statuses).toContainEqual(["mbridge", "mbridge: 分类超时"])
+    expect(statuses).not.toContainEqual(["mbridge", "mbridge: 未运行"])
+  })
 })
 
 // ---- SP13: only a turn on group/mbridge is routed ----

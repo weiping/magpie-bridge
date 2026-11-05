@@ -29,6 +29,11 @@ export interface Feedback {
   value?: string
 }
 
+/** Why a /turn gave nothing: the budget ran out (mbridge is up, the
+ *  classifier did not answer in time), the gateway was unreachable, or it
+ *  answered with an error. */
+export type TurnFailure = "timeout" | "unreachable" | "error"
+
 /** The end-of-turn review's body (SP7 §3.3). */
 export interface ReviewBody {
   session: string
@@ -45,9 +50,9 @@ export const TURN_BUDGET_MS = 1500
 /** How long the /router probe may take (SP10). */
 const PROBE_MS = 500
 
-/** SP10: mbridge's turn_budget_ms, held to [1500, 8000]; null when absent. */
+/** SP10: mbridge's turn_budget_ms, held to [1500, 25000]; null when absent. */
 export function clampBudget(ms: unknown): number | null {
-  return typeof ms === "number" && Number.isFinite(ms) ? Math.min(8000, Math.max(1500, Math.round(ms))) : null
+  return typeof ms === "number" && Number.isFinite(ms) ? Math.min(25000, Math.max(1500, Math.round(ms))) : null
 }
 
 export class MbridgeClient {
@@ -60,6 +65,12 @@ export class MbridgeClient {
   private readonly base: string
   private turnBudgetMs = TURN_BUDGET_MS
   private budgetLearned = false
+  private failure: TurnFailure | null = null
+
+  /** Why the last /turn gave nothing; null when it answered. */
+  get lastFailure(): TurnFailure | null {
+    return this.failure
+  }
 
   /** Whether mbridge has answered a budget probe yet (SP10). */
   get learned(): boolean {
@@ -88,6 +99,7 @@ export class MbridgeClient {
 
   /** POST /v1/bridge/turn; null on any failure, timeout included. */
   async turn(req: TurnRequest): Promise<TurnResponse | null> {
+    this.failure = null
     const body: Record<string, unknown> = {
       harness: "pi",
       session: req.session,
@@ -100,7 +112,9 @@ export class MbridgeClient {
     if (req.toolCalls !== undefined) body.tool_calls = req.toolCalls
     if (req.toolFailures !== undefined) body.tool_failures = req.toolFailures
     if (req.previousAnswer !== undefined && req.previousAnswer !== "") body.previous_answer = clientCut(req.previousAnswer)
-    const out = (await this.post("/v1/bridge/turn", body, this.turnBudgetMs)) as TurnResponse | null
+    const out = (await this.post("/v1/bridge/turn", body, this.turnBudgetMs, (f) => {
+      this.failure = f
+    })) as TurnResponse | null
     if (out === null || typeof out.tier !== "string" || typeof out.group !== "string") return null
     return out
   }
@@ -144,23 +158,33 @@ export class MbridgeClient {
     )
   }
 
-  private async post(path: string, body: unknown, timeoutMs?: number): Promise<unknown> {
+  private async post(
+    path: string,
+    body: unknown,
+    timeoutMs?: number,
+    onFailure?: (f: TurnFailure) => void,
+  ): Promise<unknown> {
     // the budget is raced on our side (not just AbortSignal.timeout, whose
     // clock a test rig cannot drive) so a hung gateway still returns null
     let abort: (() => void) | undefined
+    let timedOut = false
     const expired = timeoutMs !== undefined ? new Promise<never>((_, reject) => {
-      const t = setTimeout(() => reject(new Error("mbridge: budget spent")), timeoutMs)
+      const t = setTimeout(() => { timedOut = true; reject(new Error("mbridge: budget spent")) }, timeoutMs)
       abort = () => clearTimeout(t)
     }) : undefined
     try {
       const res = await (expired === undefined
         ? fetch(this.base + path, this.init(body))
         : Promise.race([fetch(this.base + path, this.init(body)), expired]))
-      if (!res.ok) return null
+      if (!res.ok) {
+        onFailure?.("error")
+        return null
+      }
       if (res.status === 204) return {}
       const text = await res.text()
       return text === "" ? {} : (JSON.parse(text) as unknown)
     } catch {
+      onFailure?.(timedOut ? "timeout" : "unreachable")
       return null
     } finally {
       abort?.()

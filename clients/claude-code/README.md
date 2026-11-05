@@ -14,7 +14,8 @@ mbridge gateway's classifier.
   to the gateway (`POST /v1/bridge/turn`), records the tier it picks and
   rewrites the request to this turn's tier group (`group/mb-fast` /
   `mb-balanced` / `mb-perf`). It waits as long as mbridge's `turn_budget_ms`
-  (`classify_timeout_ms` + 500, 1500–8000 ms; 1500 ms when mbridge doesn't
+  (`classify_timeout_ms` + 500, 1500–8000 ms here — the hook stops at 10 s;
+  1500 ms when mbridge doesn't
   say), learned from `GET /v1/bridge/router`. On any other model — a model
   you pinned with `/model`, a tier group a subagent already chose — the
   plugin does nothing.

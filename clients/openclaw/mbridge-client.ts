@@ -16,20 +16,29 @@ export type TurnResponse = {
   reason?: string;
 };
 
+/** Why a /turn gave nothing. */
+export type TurnFailure = "timeout" | "unreachable" | "error";
+
 const DEFAULT_BUDGET_MS = 3500;
 const PROBE_MS = 500;
 
 export function clampBudget(ms: unknown): number | null {
   return typeof ms === "number" && Number.isFinite(ms)
-    ? Math.min(8000, Math.max(1500, Math.round(ms)))
+    ? Math.min(25000, Math.max(1500, Math.round(ms)))
     : null;
 }
 
 export class MbridgeClient {
   private turnBudgetMs = DEFAULT_BUDGET_MS;
   private budgetLearned = false;
+  private failure: TurnFailure | null = null;
 
   constructor(private readonly base: string) {}
+
+  /** Why the last /turn gave nothing; null when it answered. */
+  get lastFailure(): TurnFailure | null {
+    return this.failure;
+  }
 
   async learnBudget(): Promise<void> {
     const ctrl = new AbortController();
@@ -57,6 +66,7 @@ export class MbridgeClient {
 
   async turn(req: TurnRequest): Promise<TurnResponse | null> {
     await this.ensureBudget();
+    this.failure = null;
     const body: Record<string, unknown> = {
       harness: "openclaw",
       session: req.session,
@@ -78,11 +88,18 @@ export class MbridgeClient {
         body: JSON.stringify(body),
         signal: ctrl.signal,
       });
-      if (!res.ok) return null;
+      if (!res.ok) {
+        this.failure = "error";
+        return null;
+      }
       const out = (await res.json()) as TurnResponse;
-      if (typeof out.tier !== "string" || typeof out.group !== "string") return null;
+      if (typeof out.tier !== "string" || typeof out.group !== "string") {
+        this.failure = "error";
+        return null;
+      }
       return out;
     } catch {
+      this.failure = ctrl.signal.aborted ? "timeout" : "unreachable";
       return null;
     } finally {
       clearTimeout(t);

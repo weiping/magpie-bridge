@@ -273,10 +273,10 @@ func TestOldConfigGetsListenAndMagpieDefaults(t *testing.T) {
 
 // SP10: a turn may wait as long as the classifier may take, plus 500 ms
 // for mbridge and the round trip, but never under the old 1500 ms nor
-// past 8000 ms (the Claude Code mod's hooks stop at 10 s).
+// past 30000 ms. Clients clamp it to what their host allows.
 func TestTurnBudgetFollowsClassifyTimeout(t *testing.T) {
 	for _, c := range []struct{ classify, want int }{
-		{2500, 3000}, {1500, 2000}, {500, 1500}, {0, 1500}, {7500, 8000}, {20000, 8000},
+		{2500, 3000}, {1500, 2000}, {500, 1500}, {0, 1500}, {7500, 8000}, {20000, 20500}, {40000, 30000},
 	} {
 		if got := (Config{ClassifyTimeoutMs: c.classify}).TurnBudgetMs(); got != c.want {
 			t.Errorf("classify %d → budget %d, want %d", c.classify, got, c.want)

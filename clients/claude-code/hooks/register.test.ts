@@ -206,6 +206,40 @@ test('the 1500ms timer wins the race when /turn hangs', async ($, on) => {
   expect(status).toContain('mbridge: 未运行')
 })
 
+// SP14: mbridge answering the probe and then not answering the turn is a
+// slow classifier, not a dead gateway, and the status must say so.
+test('a slow classifier is not a dead gateway', async ($, on) => {
+  mockMagpieEnv(on)
+  on('http.fetch', async (_$: unknown, e: { url: string }) => {
+    if (e.url.endsWith('/v1/bridge/router')) {
+      return { value: { status: 200, ok: true, headers: {}, text: '{"turn_budget_ms":3000}' } }
+    }
+    if (e.url.endsWith('/v1/bridge/turn')) return { value: new Promise(() => {}) } // mbridge never answers
+    return { value: { status: 200, ok: true, headers: {}, text: '{}' } }
+  })
+  const { status } = stubBasics(on)
+  const clock = mock.clock(on)
+  on('session.start', () => ({ cwd: '/work/repo' }))
+  on('turn.start', (_$: unknown, e: { turnId: string }) => ({ turnId: e.turnId }))
+  const seen: string[] = []
+  on('turn.step', async function* (_$: unknown, e: { turnId: string; index: number; model: string }) {
+    seen.push(e.model)
+    return { turnId: e.turnId, index: e.index, answer: 'ok', toolUses: [], stopReason: 'end_turn', usage: null }
+  })
+
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work/repo' })
+  const started = $.turn.start({ turnId: 't1', text: 'hello' })
+  await clock.advance(100)
+  await started
+  const stepped = runStep($, 'group/mbridge')
+  await clock.advance(4000) // past the 3000 ms budget
+  await stepped
+
+  expect(seen).toEqual(['group/mbridge']) // untouched: the turn keeps its model
+  expect(status).toContain('mbridge: 分类超时')
+  expect(status).not.toContain('mbridge: 未运行')
+})
+
 // SP10: mbridge says at session.start how long a turn may take; a /turn
 // that answers within it is used even past the old 1500 ms. The fake /turn
 // answers when the test releases it, after moving the clock on.

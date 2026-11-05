@@ -91,7 +91,7 @@ export default function (pi: ExtensionAPI): void {
   // SP8: the main session's tool results since the last /turn; mbridge no
   // longer sees Pi's requests, so Pi reports them (R3's tool rule)
   let tools: { calls: number; failures: number } | null = null
-  let downShown = false
+  let failShown = false
 
   pi.on("session_start", (event, ctx: ExtensionContext) => {
     const ids = idsFrom(
@@ -162,12 +162,15 @@ export default function (pi: ExtensionAPI): void {
     // mbridge down: the model stays as it is, and the status says why
     const status = (ctx as { ui?: { setStatus?: (k: string, t: string | undefined) => void } }).ui?.setStatus
     if (out === null) {
-      if (!downShown) status?.("mbridge", "mbridge: 未运行")
-      downShown = true
+      // mbridge answered before and did not answer now: the classifier was
+      // too slow, which is not the same as mbridge being down
+      const why = client.lastFailure === "timeout" && client.learned ? "mbridge: 分类超时" : client.lastFailure === "error" ? "mbridge: 报错" : "mbridge: 未运行"
+      if (!failShown) status?.("mbridge", why)
+      failShown = true
       return
     }
-    if (downShown) status?.("mbridge", undefined)
-    downShown = false
+    if (failShown) status?.("mbridge", undefined)
+    failShown = false
     if (out.tier === lastTier) return
     const target = ctx.modelRegistry.find(PROVIDER, out.group)
     if (target === undefined) return // tier group unknown to Pi: keep the model

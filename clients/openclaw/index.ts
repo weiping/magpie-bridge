@@ -96,7 +96,20 @@ export default definePluginEntry({
       const out = await client.turn(turnReq);
       st.tools = { calls: 0, failures: 0 };
 
-      if (!out) return;
+      if (!out) {
+        // OpenClaw has no status line for plugins: say it in the log, and
+        // say which failure it was (mbridge down vs a slow classifier)
+        console.warn(
+          `[mbridge-openclaw] no tier this turn (${
+            client.lastFailure === "timeout"
+              ? "the classifier did not answer in time"
+              : client.lastFailure === "error"
+                ? "mbridge answered with an error"
+                : "mbridge is not reachable"
+          }); the model stays as it is`,
+        )
+        return
+      }
 
       const modelId = groupToModelId(out.group);
       if (out.tier === st.lastTier && stripModelSuffix(ctx.modelId ?? "") === stripModelSuffix(modelId)) {

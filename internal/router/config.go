@@ -327,15 +327,16 @@ func (c Config) PolicyConfig() PolicyConfig { return c.PolicyConfigFor("", "main
 
 // TurnBudgetMs is how long a client waits for /v1/bridge/turn (SP10): the
 // classify timeout plus 500 ms for mbridge and the round trip, never under
-// the original 1500 ms nor past 8000 ms (the Claude Code mod's hooks stop
-// at 10 s).
+// the original 1500 ms nor past 30000 ms. Clients clamp it further to what
+// their host allows (the Claude Code mod's hooks stop at 10 s, so they hold
+// it to 8000 ms).
 func (c Config) TurnBudgetMs() int {
 	b := c.ClassifyTimeoutMs + 500
 	if b < 1500 {
 		b = 1500
 	}
-	if b > 8000 {
-		b = 8000
+	if b > 30000 {
+		b = 30000
 	}
 	return b
 }

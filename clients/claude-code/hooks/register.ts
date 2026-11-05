@@ -109,6 +109,14 @@ const PROBE_MS = 500 // how long the /router probe may take
 const clampBudget = (ms: unknown): number | null =>
   typeof ms === 'number' && Number.isFinite(ms) ? Math.min(8000, Math.max(1500, Math.round(ms))) : null
 
+// What the UI says when a turn got no decision. mbridge being up but slow
+// is not mbridge being down, and the two must not read the same.
+const MBRIDGE_STATUS = {
+  timeout: 'mbridge: 分类超时',
+  unreachable: 'mbridge: 未运行',
+  error: 'mbridge: 报错',
+} as const
+
 // §5.5 step 3 / R1: subagent types with a fixed tier (matches the Go
 // side's fixed_agents).
 const FIXED_AGENT: Record<string, Tier> = {
@@ -152,7 +160,8 @@ async function decideMain($: any, gateway: string, text: string, turnId: string)
     const hash = await firstUserHash($)
     if (hash !== null) parentSession = await parentFromStore($, hash, session)
   }
-  const decided = await decideTurn($, gateway, await turnBudget($, gateway), {
+  const { budget, reachable } = await turnBudget($, gateway)
+  const decided = await decideTurn($, gateway, budget, {
     harness: 'claude-code',
     session,
     prompt: text,
@@ -166,7 +175,7 @@ async function decideMain($: any, gateway: string, text: string, turnId: string)
     // SP11: the reply before this prompt
     ...(lastAnswer !== null ? { previous_answer: lastAnswer } : {}),
   })
-  if (decided !== null) {
+  if (decided !== null && !('failed' in decided)) {
     await update($, stTurn, () => ({ turnId, tier: decided.tier, group: decided.group }))
     await update($, stMainTier, () => decided.tier)
     try {
@@ -176,10 +185,11 @@ async function decideMain($: any, gateway: string, text: string, turnId: string)
     }
   } else {
     await update($, stTurn, () => null)
-    // SP14: mbridge is not reachable, but the turn is on group/mbridge;
-    // the user is on a magpie model — tell them the gateway is down
+    // SP14: mbridge did not answer in time, or is not reachable at all;
+    // the user is on a magpie model — say which one it is
+    const why = decided !== null && decided.failed === 'timeout' && reachable ? 'timeout' : decided !== null ? decided.failed : 'unreachable'
     try {
-      await $.ui.status('mbridge: 未运行')
+      await $.ui.status(MBRIDGE_STATUS[why])
     } catch {
       // ui.status refused; nothing more to do
     }
@@ -294,14 +304,15 @@ export const register: Register = (on, options) => {
     if (fixed !== undefined) return next({ ...e, model: TIER_ALIAS[fixed] })
     // 4. ask the gateway; failure leaves the spawn unchanged
     const session = await $.session.id()
-    const decided = await decideTurn($, gateway, await turnBudget($, gateway), {
+    const { budget } = await turnBudget($, gateway)
+    const decided = await decideTurn($, gateway, budget, {
       harness: 'claude-code',
       session,
       prompt: e.prompt,
       agent: e.subagentType,
       store_hint: false,
     })
-    if (decided === null) return next(e)
+    if (decided === null || 'failed' in decided) return next(e)
     // 5. spawn with the tier's alias; §4.5's env resolves it to the group
     return next({ ...e, model: TIER_ALIAS[decided.tier] })
   })
@@ -455,7 +466,7 @@ async function decideTurn(
   gateway: string,
   budgetMs: number,
   body: Record<string, unknown>,
-): Promise<{ tier: Tier; group: string; reason: string } | null> {
+): Promise<{ tier: Tier; group: string; reason: string } | { failed: keyof typeof MBRIDGE_STATUS } | null> {
   try {
     const res = await Promise.race([
       $.http.fetch(gateway + '/v1/bridge/turn', {
@@ -465,17 +476,17 @@ async function decideTurn(
       }),
       $.clock.sleep(budgetMs).then(() => 'timeout' as const),
     ])
-    if (res === 'timeout') return null
-    if (!res.ok) return null
+    if (res === 'timeout') return { failed: 'timeout' }
+    if (!res.ok) return { failed: 'error' }
     const parsed = JSON.parse(res.text) as { tier?: string; group?: string; reason?: string }
-    if (typeof parsed.tier !== 'string' || typeof parsed.group !== 'string') return null
+    if (typeof parsed.tier !== 'string' || typeof parsed.group !== 'string') return { failed: 'error' }
     return {
       tier: parsed.tier as Tier,
       group: parsed.group,
       reason: typeof parsed.reason === 'string' ? parsed.reason : '',
     }
   } catch {
-    return null
+    return { failed: 'unreachable' }
   }
 }
 
@@ -504,9 +515,15 @@ async function learnBudget($: any, gateway: string): Promise<number | null> {
 }
 
 /** SP10: the budget this turn may wait. Learned at session.start; when that
- *  probe failed, or /clear and the like reset $.state, ask again here. */
-async function turnBudget($: any, gateway: string): Promise<number> {
-  return (await read($, stTurnBudget)) ?? (await learnBudget($, gateway)) ?? TURN_BUDGET_MS
+ *  probe failed, or /clear and the like reset $.state, ask again here.
+ * reachable says whether mbridge ever answered: a turn that times out while
+ * mbridge has answered before is a slow classifier, not a dead gateway. */
+async function turnBudget($: any, gateway: string): Promise<{ budget: number; reachable: boolean }> {
+  const stored = await read($, stTurnBudget)
+  if (stored !== null) return { budget: stored, reachable: true }
+  const learned = await learnBudget($, gateway)
+  if (learned !== null) return { budget: learned, reachable: true }
+  return { budget: TURN_BUDGET_MS, reachable: false }
 }
 
 /** SP11: at most 4000 characters of a previous answer, the first 1000 and
