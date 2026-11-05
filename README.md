@@ -20,9 +20,9 @@ Magpie Bridge 和官方 [magpie](https://github.com/yetone/magpie) 并排运行�
 | --- | --- | --- |
 | 守护进程（`mbridge serve`）：`/v1/bridge/*` 与 Codex、网关模式的代理（`internal/router/`、`internal/proxy/`） | 所有 Agent | 默认监听 3426 |
 | Claude Code 插件 `magpie-bridge`（`clients/claude-code/`） | Claude Code | 0.3.3，默认连 3426 |
-| Pi 包 `@weiping/pi-magpie-bridge`（`clients/pi/`） | Pi | 0.3.1，自报工具统计 |
+| Pi 包 `@weiping/pi-magpie-bridge`（`clients/pi/`） | Pi | 0.3.2，自报工具统计 |
 | Codex 插件 `magpie-bridge-codex`（`clients/codex/`） | Codex | 0.2.1，配合 `codex -p mbridge` |
-| OpenClaw 插件 `@weiping/openclaw-mbridge`（`clients/openclaw/`） | OpenClaw | 0.1.0，逐轮改写模型 |
+| OpenClaw 插件 `@weiping/openclaw-mbridge`（`clients/openclaw/`） | OpenClaw | 0.1.2，逐轮改写模型 |
 | 状态页 `http://127.0.0.1:3426/status`（mbridge 自己服务） | 所有 Agent | 进程、生效中的配置、正在选档的会话、分类器、分档统计 |
 | magpie 页面插件 `clients/magpie-page/` | magpie 窗口 | magpie 记下的用量速览 |
 | 报表、复核与校准（`mbridge router report`、`calibrate`） | 所有 Agent | 成本取 magpie 的 `usage --csv` |
